@@ -29,7 +29,7 @@ vi.mock('electron', () => ({
 
 async function loadPlugin() {
   vi.resetModules()
-  const mod = await import('../../../plugins/calendar/src/main/index')
+  const mod = await import('../../../calendar/src/main/index')
   return mod
 }
 

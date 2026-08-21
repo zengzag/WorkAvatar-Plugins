@@ -7,7 +7,7 @@ import { createMockContext } from '../../helpers/mock-plugin-context'
 
 async function loadPlugin() {
   vi.resetModules()
-  const mod = await import('../../../plugins/examples/hello-world/src/main/index')
+  const mod = await import('../../../examples/hello-world/src/main/index')
   return mod
 }
 

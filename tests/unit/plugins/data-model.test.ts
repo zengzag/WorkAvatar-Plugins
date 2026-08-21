@@ -24,7 +24,7 @@ vi.mock('electron', () => ({
 
 async function loadPlugin() {
   vi.resetModules()
-  const mod = await import('../../../plugins/data-model/src/main/index')
+  const mod = await import('../../../data-model/src/main/index')
   return mod
 }
 

@@ -30,7 +30,7 @@ vi.mock('electron', () => ({
 
 async function loadPlugin() {
   vi.resetModules()
-  const mod = await import('../../../plugins/voice/src/main/index')
+  const mod = await import('../../../voice/src/main/index')
   return mod
 }
 

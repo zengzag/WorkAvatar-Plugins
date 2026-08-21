@@ -8,7 +8,7 @@ import { createMockContext } from '../../helpers/mock-plugin-context'
 
 async function loadPlugin() {
   vi.resetModules()
-  const mod = await import('../../../plugins/automation/src/main/index')
+  const mod = await import('../../../automation/src/main/index')
   return mod
 }
 
