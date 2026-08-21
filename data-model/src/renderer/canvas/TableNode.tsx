@@ -7,7 +7,7 @@ import { getVisibleFields, FIELD_HEIGHT, HEADER_HEIGHT, NODE_WIDTH } from './dag
 import { useDataModelStore } from '../data-model.store'
 import { hostT } from '../store'
 
-export type TableNodeData = { table: Table; relationships: Relationship[] }
+export type TableNodeData = { table: Table; relationships: Relationship[]; highlighted?: boolean }
 export type TableNodeType = Node<TableNodeData>
 export type TableNodeComponentProps = NodeProps<TableNodeType>
 
@@ -55,7 +55,7 @@ function FieldRow({ field, color }: { field: Table['fields'][number]; color: str
 }
 
 function TableNodeInner({ data, selected }: TableNodeComponentProps) {
-  const { table, relationships } = data
+  const { table, relationships, highlighted } = data
   const updateTable = useDataModelStore((s) => s.updateTable)
   const visibleFields = useMemo(
     () => getVisibleFields(table, relationships),
@@ -79,18 +79,25 @@ function TableNodeInner({ data, selected }: TableNodeComponentProps) {
     <div
       style={{
         width: NODE_WIDTH, borderRadius: 8, overflow: 'hidden',
-        border: selected ? '2px solid var(--dm-primary)' : '1px solid var(--dm-border-strong)',
-        boxShadow: selected ? '0 0 0 3px var(--dm-primary-soft)' : '0 1px 3px rgba(0,0,0,0.1)',
+        border: selected
+          ? '2px solid var(--dm-primary)'
+          : highlighted
+            ? '2px solid var(--dm-highlight)'
+            : '1px solid var(--dm-border-strong)',
+        boxShadow: selected
+          ? '0 0 0 3px var(--dm-primary-soft)'
+          : highlighted
+            ? '0 0 0 3px var(--dm-highlight-soft)'
+            : '0 1px 3px rgba(0,0,0,0.1)',
         background: 'var(--dm-bg)'
       }}
     >
       <div
-        onClick={toggleExpanded}
         title={table.expanded ? hostT('table.collapse') : hostT('table.expand')}
         style={{
           height: HEADER_HEIGHT, display: 'flex', alignItems: 'center', padding: '0 10px', gap: 6,
           background: `${table.color}22`, borderBottom: '1px solid var(--dm-border)',
-          cursor: 'pointer', userSelect: 'none'
+          userSelect: 'none'
         }}
       >
         <span style={{ fontSize: 13 }}>{table.isView ? '👁' : '▦'}</span>
@@ -101,7 +108,13 @@ function TableNodeInner({ data, selected }: TableNodeComponentProps) {
           <span style={{ color: 'var(--dm-muted)', fontSize: 11 }}>+{fields.length - visibleFields.length}</span>
         )}
         {pkCount > 0 && <span style={{ color: 'var(--dm-muted)', fontSize: 11 }}>PK {pkCount}</span>}
-        <span style={{ color: 'var(--dm-muted)', fontSize: 11 }}>{table.expanded ? '▾' : '▸'}</span>
+        <span
+          onClick={toggleExpanded}
+          title={table.expanded ? hostT('table.collapse') : hostT('table.expand')}
+          style={{ color: 'var(--dm-muted)', fontSize: 11, cursor: 'pointer', padding: '2px 4px', borderRadius: 4 }}
+        >
+          {table.expanded ? '▾' : '▸'}
+        </span>
       </div>
       {(table.expanded || showFieldsWhenCollapsed) && (
         <div>

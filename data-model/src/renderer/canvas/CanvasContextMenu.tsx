@@ -1,7 +1,6 @@
 // 画布右键菜单
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { hostT } from '../store'
 
 export type ContextMenuState =
   | { type: 'pane'; x: number; y: number }
@@ -10,9 +9,10 @@ export type ContextMenuState =
 
 interface MenuItem {
   key: string
-  label: string
+  label?: string
+  type?: 'divider'
   danger?: boolean
-  onClick: () => void
+  onClick?: () => void
 }
 
 interface Props {
@@ -61,27 +61,24 @@ export function CanvasContextMenu({ state, items, onClose }: Props) {
       }}
       onClick={(e) => e.stopPropagation()}
     >
-      {items.map((item) => (
-        <div
-          key={item.key}
-          onClick={(e) => { e.stopPropagation(); item.onClick(); onClose() }}
-          style={{
-            padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 13,
-            color: item.danger ? '#ef4444' : 'var(--dm-text)'
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--dm-hover)')}
-          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-        >
-          {item.label}
-        </div>
-      ))}
+      {items.map((item) =>
+        item.type === 'divider' ? (
+          <div key={item.key} style={{ height: 1, background: 'var(--dm-border)', margin: '4px 0' }} />
+        ) : (
+          <div
+            key={item.key}
+            onClick={(e) => { e.stopPropagation(); item.onClick?.(); onClose() }}
+            style={{
+              padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 13,
+              color: item.danger ? '#ef4444' : 'var(--dm-text)'
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--dm-hover)')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+          >
+            {item.label}
+          </div>
+        )
+      )}
     </div>
   )
-}
-
-export function buildPaneItems(onNewTable: () => void, onLayout: () => void): MenuItem[] {
-  return [
-    { key: 'new-table', label: hostT('page.newTable'), onClick: onNewTable },
-    { key: 'layout', label: hostT('page.autoLayout'), onClick: onLayout }
-  ]
 }

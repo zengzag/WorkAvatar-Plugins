@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { Button, Input, Select, Checkbox, Popconfirm, Divider, Tooltip } from 'antd'
-import { DeleteOutlined, PlusOutlined, KeyOutlined, CommentOutlined } from '@ant-design/icons'
+import { DeleteOutlined, PlusOutlined, KeyOutlined, CommentOutlined, ShareAltOutlined } from '@ant-design/icons'
 import { useDataModelStore } from '../data-model.store'
 import { hostT } from '../store'
 import { createField, type FieldType, type Table } from '../../shared/domain'
@@ -17,7 +17,8 @@ const FIELD_TYPES: FieldType[] = [
 const PRESET_COLORS = ['#71717a', '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16', '#06b6d4']
 
 export function TableInspector({ table }: { table: Table }) {
-  const { updateTable, removeTable, addField, updateField, removeField } = useDataModelStore.getState()
+  const model = useDataModelStore((s) => s.model)
+  const { updateTable, removeTable, addField, updateField, removeField, focusTable, selectTable } = useDataModelStore.getState()
   const [newFieldName, setNewFieldName] = useState('')
   const fields = table.fields ?? []
 
@@ -25,6 +26,16 @@ export function TableInspector({ table }: { table: Table }) {
     if (!newFieldName.trim()) return
     addField(table.id, createField({ name: newFieldName.trim(), type: 'varchar' }))
     setNewFieldName('')
+  }
+
+  // 该表参与的所有关系（作为源或目标）
+  const relationships = (model?.relationships ?? []).filter(
+    (r) => r.sourceTableId === table.id || r.targetTableId === table.id
+  )
+
+  const jumpToTable = (id: string) => {
+    selectTable(id)
+    focusTable(id)
   }
 
   return (
@@ -85,6 +96,52 @@ export function TableInspector({ table }: { table: Table }) {
           <FieldEditor key={f.id} tableId={table.id} field={f} onRemove={() => removeField(table.id, f.id)} />
         ))}
       </div>
+
+      <Divider style={{ margin: '2px 0' }} />
+
+      {/* 关系列表：点击可跳转到连接的表 */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{hostT('table.relationships')}（{relationships.length}）</span>
+      </div>
+      {relationships.length === 0 ? (
+        <div style={{ fontSize: 12, color: 'var(--dm-muted)', fontStyle: 'italic' }}>{hostT('table.noRelationships')}</div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {relationships.map((r) => {
+            const isSource = r.sourceTableId === table.id
+            const otherTable = model?.tables.find((t) => t.id === (isSource ? r.targetTableId : r.sourceTableId))
+            const otherField = otherTable?.fields?.find((f) => f.id === (isSource ? r.targetFieldId : r.sourceFieldId))
+            const thisField = fields.find((f) => f.id === (isSource ? r.sourceFieldId : r.targetFieldId))
+            if (!otherTable) return null
+            return (
+              <div
+                key={r.id}
+                onClick={() => jumpToTable(otherTable.id)}
+                title={hostT('table.jumpTo')}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px',
+                  borderRadius: 6, cursor: 'pointer', fontSize: 12,
+                  border: '1px solid var(--dm-border)', background: 'var(--dm-bg-soft)'
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--dm-primary)')}
+                onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--dm-border)')}
+              >
+                <ShareAltOutlined style={{ color: 'var(--dm-muted)', fontSize: 12 }} />
+                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--dm-mono)' }}>
+                  {thisField?.name}
+                  <span style={{ margin: '0 4px', color: 'var(--dm-muted)' }}>→</span>
+                  {otherTable.name}.{otherField?.name}
+                </span>
+                <span style={{ fontSize: 10, color: 'var(--dm-muted)', flexShrink: 0 }}>
+                  {isSource ? (r.sourceCardinality === 'many' ? 'N' : '1') : (r.targetCardinality === 'many' ? 'N' : '1')}
+                  :
+                  {isSource ? (r.targetCardinality === 'many' ? 'N' : '1') : (r.sourceCardinality === 'many' ? 'N' : '1')}
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       <Divider style={{ margin: '2px 0' }} />
       <Popconfirm title={hostT('table.delete')} onConfirm={() => removeTable(table.id)}>

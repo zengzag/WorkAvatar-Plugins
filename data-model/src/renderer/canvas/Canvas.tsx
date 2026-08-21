@@ -1,8 +1,15 @@
 // 数据模型画布
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Button, Dropdown, Popconfirm, Tooltip } from 'antd'
 import {
-  ReactFlow, ReactFlowProvider, Background, Controls, MiniMap,
+  DeleteOutlined, SelectOutlined, DownOutlined, UpOutlined,
+  AlignLeftOutlined, AlignCenterOutlined, AlignRightOutlined,
+  VerticalAlignTopOutlined, VerticalAlignMiddleOutlined, VerticalAlignBottomOutlined,
+  ColumnWidthOutlined, SortAscendingOutlined
+} from '@ant-design/icons'
+import {
+  ReactFlow, ReactFlowProvider, Background, Controls, MiniMap, SelectionMode,
   useNodesState, useEdgesState, useReactFlow,
   type Connection, type Node, type Edge, type OnNodeDrag, type NodeMouseHandler
 } from '@xyflow/react'
@@ -13,6 +20,7 @@ import { createTable, createRelationship } from '../../shared/domain'
 import { TableNode, type TableNodeData } from './TableNode'
 import { RelationshipEdge, type RelationshipEdgeData } from './RelationshipEdge'
 import { layoutTables, NODE_WIDTH, HEADER_HEIGHT, FIELD_HEIGHT, NODE_HEIGHT_COLLAPSED, getVisibleFields } from './dagre-layout'
+import { alignPositions, distributePositions, type AlignMode, type DistributeMode } from './arrange'
 import { CanvasContextMenu, type ContextMenuState } from './CanvasContextMenu'
 
 const nodeTypes = { table: TableNode }
@@ -21,17 +29,18 @@ const edgeTypes = { relationship: RelationshipEdge }
 function CanvasInner() {
   const model = useDataModelStore((s) => s.model)
   const selectedTableId = useDataModelStore((s) => s.selectedTableId)
+  const selectedTableIds = useDataModelStore((s) => s.selectedTableIds)
   const selectedRelationshipId = useDataModelStore((s) => s.selectedRelationshipId)
   const focusRequest = useDataModelStore((s) => s.focusRequest)
   const layoutRequest = useDataModelStore((s) => s.layoutRequest)
-  const { selectTable, selectRelationship, updateTable, removeTable, addTable, addRelationship, removeRelationship, requestLayout } = useDataModelStore.getState()
+  const { selectTable, setSelectedTables, selectRelationship, updateTable, updateTables, updateTablePositions, removeTable, removeTables, addTable, addRelationship, removeRelationship, requestLayout } = useDataModelStore.getState()
 
   const { isDark } = useAppearance()
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<TableNodeData>>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<RelationshipEdgeData>>([])
   const [menu, setMenu] = useState<ContextMenuState | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const { setCenter, getNode, fitView } = useReactFlow()
+  const { setCenter, getNode, getNodes, fitView } = useReactFlow()
 
   // 用于检测 model 是否切换（新项目加载）
   const prevModelId = useRef<string | undefined>(model?.id)
@@ -106,10 +115,47 @@ function CanvasInner() {
     setEdges(relEdges)
   }, [model, setNodes, setEdges, selectedRelationshipId])
 
-  // 选中态同步到节点
+  // 选中态由 React Flow 管理（支持多选），通过 onSelectionChange 同步到 store
+  const onSelectionChange = useCallback(({ nodes: selNodes }: { nodes: Node[] }) => {
+    const ids = selNodes.map((n) => n.id)
+    setSelectedTables(ids)
+  }, [setSelectedTables])
+
+  // 外部选中变化（检查器跳转等）时同步节点选中态
   useEffect(() => {
-    setNodes((nds) => nds.map((n) => ({ ...n, selected: n.id === selectedTableId })))
-  }, [selectedTableId, setNodes])
+    const idSet = new Set(selectedTableIds)
+    setNodes((nds) => nds.map((n) => ({ ...n, selected: idSet.has(n.id) })))
+  }, [selectedTableIds, setNodes])
+
+  // 高亮：选中表 + 直接连接的表，以及相关关系边
+  const highlightedTableIds = useMemo(() => {
+    if (!selectedTableId || !model) return new Set<string>()
+    const set = new Set<string>([selectedTableId])
+    for (const r of model.relationships) {
+      if (r.sourceTableId === selectedTableId) set.add(r.targetTableId)
+      if (r.targetTableId === selectedTableId) set.add(r.sourceTableId)
+    }
+    return set
+  }, [selectedTableId, model])
+
+  const highlightedEdgeIds = useMemo(() => {
+    if (!selectedTableId || !model) return new Set<string>()
+    const set = new Set<string>()
+    for (const r of model.relationships) {
+      if (r.sourceTableId === selectedTableId || r.targetTableId === selectedTableId) set.add(r.id)
+    }
+    return set
+  }, [selectedTableId, model])
+
+  // 渲染时注入高亮标记（随选中变化自动更新）
+  const renderNodes = useMemo(
+    () => nodes.map((n) => ({ ...n, data: { ...n.data, highlighted: highlightedTableIds.has(n.id) } })),
+    [nodes, highlightedTableIds]
+  )
+  const renderEdges = useMemo(
+    () => edges.map((e) => ({ ...e, data: { ...e.data, highlighted: highlightedEdgeIds.has(e.id) } })),
+    [edges, highlightedEdgeIds]
+  )
 
   // 响应自动排版请求（用户点击按钮 / AI 工具增删表后）
   useEffect(() => {
@@ -139,14 +185,14 @@ function CanvasInner() {
     return () => cancelAnimationFrame(raf)
   }, [layoutRequest, setNodes, setEdges, fitView])
 
-  // 聚焦
+  // 聚焦：仅在 focusRequest 变化时执行，避免 model 变化（如拖拽节点）导致视图被拉回选中表
   useEffect(() => {
     if (!focusRequest) return
     const node = getNode(focusRequest.tableId)
     if (!node) return
     const table = (node.data as TableNodeData)?.table
     if (!table) return
-    const relationships = model?.relationships ?? []
+    const relationships = useDataModelStore.getState().model?.relationships ?? []
     const visibleCount = getVisibleFields(table, relationships).length
     const h = table.expanded
       ? HEADER_HEIGHT + Math.max((table.fields ?? []).length * FIELD_HEIGHT, 40) + 8
@@ -156,7 +202,7 @@ function CanvasInner() {
     const cx = node.position.x + NODE_WIDTH / 2
     const cy = node.position.y + h / 2
     setCenter(cx, cy, { zoom: 1, duration: 400 })
-  }, [focusRequest, getNode, setCenter, model])
+  }, [focusRequest, getNode, setCenter])
 
   const onConnect = useCallback((conn: Connection) => {
     const sourceFieldId = conn.sourceHandle?.replace(/^field-/, '').replace(/-right$/, '')
@@ -174,21 +220,28 @@ function CanvasInner() {
   }, [addRelationship])
 
   const onNodeDragStop: OnNodeDrag<Node<TableNodeData>> = useCallback((_: any, node: Node) => {
-    updateTable(node.id, { x: node.position.x, y: node.position.y })
-  }, [updateTable])
+    // 批量拖拽时同步所有选中表的位置，避免其余表刷新后弹回原位
+    const moved = getNodes().filter((n) => n.selected)
+    if (moved.length > 1) {
+      updateTablePositions(moved.map((n) => ({ id: n.id, x: n.position.x, y: n.position.y })))
+    } else {
+      updateTable(node.id, { x: node.position.x, y: node.position.y })
+    }
+  }, [getNodes, updateTable, updateTablePositions])
 
   const onNodeClick: NodeMouseHandler<Node<TableNodeData>> = useCallback((_: any, node: Node) => {
-    selectTable(node.id)
-  }, [selectTable])
+    // 设置检查器主选中表；多选集合由 React Flow 的 onSelectionChange 管理
+    useDataModelStore.setState({ selectedTableId: node.id, selectedRelationshipId: null })
+  }, [])
 
   const onEdgeClick = useCallback((_: any, edge: Edge) => {
     selectRelationship(edge.id)
   }, [selectRelationship])
 
   const onPaneClick = useCallback(() => {
-    selectTable(null)
+    setSelectedTables([])
     selectRelationship(null)
-  }, [selectTable, selectRelationship])
+  }, [setSelectedTables, selectRelationship])
 
   const onPaneContextMenu = useCallback((e: React.MouseEvent<Element, MouseEvent> | MouseEvent) => {
     e.preventDefault()
@@ -210,16 +263,105 @@ function CanvasInner() {
     addTable(table)
   }, [model, addTable])
 
+  // 批量操作
+  const handleSelectAll = useCallback(() => {
+    const allIds = getNodes().map((n) => n.id)
+    setNodes((nds) => nds.map((n) => ({ ...n, selected: true })))
+    setSelectedTables(allIds)
+  }, [getNodes, setNodes, setSelectedTables])
+
+  const handleCollapseAll = useCallback(() => {
+    const allIds = getNodes().map((n) => n.id)
+    updateTables(allIds, { expanded: false })
+  }, [getNodes, updateTables])
+
+  const handleExpandAll = useCallback(() => {
+    const allIds = getNodes().map((n) => n.id)
+    updateTables(allIds, { expanded: true })
+  }, [getNodes, updateTables])
+
+  const handleBatchCollapse = useCallback(() => {
+    updateTables(selectedTableIds, { expanded: false })
+  }, [selectedTableIds, updateTables])
+
+  const handleBatchExpand = useCallback(() => {
+    updateTables(selectedTableIds, { expanded: true })
+  }, [selectedTableIds, updateTables])
+
+  const handleBatchDelete = useCallback(() => {
+    removeTables(selectedTableIds)
+  }, [selectedTableIds, removeTables])
+
+  // 对齐/分布：以 React Flow 内部节点（含拖拽后的最新位置）为准
+  const handleAlign = useCallback((mode: AlignMode) => {
+    const selected = getNodes().filter((n) => n.selected)
+    if (selected.length < 2) return
+    updateTablePositions(alignPositions(
+      selected.map((n) => ({ id: n.id, x: n.position.x, y: n.position.y })),
+      mode
+    ))
+  }, [getNodes, updateTablePositions])
+
+  const handleDistribute = useCallback((mode: DistributeMode) => {
+    const selected = getNodes().filter((n) => n.selected)
+    if (selected.length < 3) return
+    updateTablePositions(distributePositions(
+      selected.map((n) => ({ id: n.id, x: n.position.x, y: n.position.y })),
+      mode
+    ))
+  }, [getNodes, updateTablePositions])
+
+  // 键盘快捷键：Ctrl+A 全选、Delete/Backspace 删除、Escape 取消选择
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
+      const mod = e.ctrlKey || e.metaKey
+      if (mod && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault()
+        handleSelectAll()
+      } else if (e.key === 'Escape') {
+        setSelectedTables([])
+        selectRelationship(null)
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        const s = useDataModelStore.getState()
+        if (s.selectedTableIds.length > 0) {
+          e.preventDefault()
+          s.removeTables(s.selectedTableIds)
+        } else if (s.selectedRelationshipId) {
+          e.preventDefault()
+          s.removeRelationship(s.selectedRelationshipId)
+        }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [handleSelectAll, setSelectedTables, selectRelationship])
+
   const menuItems = useMemo(() => {
     if (!menu) return []
     if (menu.type === 'pane') {
       return [
         { key: 'new-table', label: hostT('page.newTable'), onClick: handleNewTable },
+        { key: 'select-all', label: hostT('canvas.selectAll'), onClick: handleSelectAll },
+        { type: 'divider' as const, key: 'divider-1' },
+        { key: 'collapse-all', label: hostT('canvas.collapseAll'), onClick: handleCollapseAll },
+        { key: 'expand-all', label: hostT('canvas.expandAll'), onClick: handleExpandAll },
+        { type: 'divider' as const, key: 'divider-2' },
         { key: 'layout', label: hostT('page.autoLayout'), onClick: requestLayout }
       ]
     }
     if (menu.type === 'node') {
       const table = model?.tables.find((t) => t.id === menu.nodeId)
+      // 右键点击的节点属于多选集合时，显示批量操作
+      const isMulti = selectedTableIds.length > 1 && selectedTableIds.includes(menu.nodeId)
+      if (isMulti) {
+        return [
+          { key: 'collapse', label: hostT('table.collapse'), onClick: handleBatchCollapse },
+          { key: 'expand', label: hostT('table.expand'), onClick: handleBatchExpand },
+          { key: 'delete', label: hostT('canvas.deleteSelected'), danger: true, onClick: handleBatchDelete }
+        ]
+      }
       return [
         { key: 'edit', label: hostT('table.edit'), onClick: () => selectTable(menu.nodeId) },
         {
@@ -233,17 +375,60 @@ function CanvasInner() {
     return [
       { key: 'delete', label: hostT('relationship.delete'), danger: true, onClick: () => removeRelationship(menu.edgeId) }
     ]
-  }, [menu, model, handleNewTable, requestLayout, selectTable, updateTable, removeTable, removeRelationship])
+  }, [menu, model, handleNewTable, requestLayout, selectTable, updateTable, removeTable, removeRelationship, selectedTableIds, handleSelectAll, handleCollapseAll, handleExpandAll, handleBatchCollapse, handleBatchExpand, handleBatchDelete])
 
   if (!model) return null
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+      {selectedTableIds.length > 0 && (
+        <div
+          style={{
+            position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', zIndex: 20,
+            display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px',
+            background: 'var(--dm-bg)', border: '1px solid var(--dm-border-strong)', borderRadius: 8,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.12)'
+          }}
+        >
+          <span style={{ fontSize: 12, color: 'var(--dm-muted)', marginRight: 4 }}>{hostT('canvas.selectedCount', { count: selectedTableIds.length })}</span>
+          <Tooltip title={hostT('canvas.selectAll')}>
+            <Button size="small" icon={<SelectOutlined />} onClick={handleSelectAll} />
+          </Tooltip>
+          <Tooltip title={hostT('table.collapse')}>
+            <Button size="small" icon={<UpOutlined />} onClick={handleBatchCollapse} />
+          </Tooltip>
+          <Tooltip title={hostT('table.expand')}>
+            <Button size="small" icon={<DownOutlined />} onClick={handleBatchExpand} />
+          </Tooltip>
+          <Dropdown
+            menu={{
+              items: [
+                { key: 'align-left', icon: <AlignLeftOutlined />, label: hostT('canvas.alignLeft'), onClick: () => handleAlign('left') },
+                { key: 'align-center-h', icon: <AlignCenterOutlined />, label: hostT('canvas.alignCenterH'), onClick: () => handleAlign('centerH') },
+                { key: 'align-right', icon: <AlignRightOutlined />, label: hostT('canvas.alignRight'), onClick: () => handleAlign('right') },
+                { type: 'divider' },
+                { key: 'align-top', icon: <VerticalAlignTopOutlined />, label: hostT('canvas.alignTop'), onClick: () => handleAlign('top') },
+                { key: 'align-center-v', icon: <VerticalAlignMiddleOutlined />, label: hostT('canvas.alignCenterV'), onClick: () => handleAlign('centerV') },
+                { key: 'align-bottom', icon: <VerticalAlignBottomOutlined />, label: hostT('canvas.alignBottom'), onClick: () => handleAlign('bottom') },
+                { type: 'divider' },
+                { key: 'distribute-h', icon: <ColumnWidthOutlined />, label: hostT('canvas.distributeH'), onClick: () => handleDistribute('horizontal') },
+                { key: 'distribute-v', icon: <SortAscendingOutlined />, label: hostT('canvas.distributeV'), onClick: () => handleDistribute('vertical') }
+              ]
+            }}
+          >
+            <Button size="small" icon={<AlignCenterOutlined />}>{hostT('canvas.arrange')}</Button>
+          </Dropdown>
+          <Popconfirm title={hostT('canvas.deleteConfirm')} onConfirm={handleBatchDelete}>
+            <Button size="small" danger icon={<DeleteOutlined />} />
+          </Popconfirm>
+        </div>
+      )}
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
+        nodes={renderNodes}
+        edges={renderEdges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        onSelectionChange={onSelectionChange}
         onConnect={onConnect}
         onNodeDragStop={onNodeDragStop}
         onNodeClick={onNodeClick}
@@ -256,9 +441,13 @@ function CanvasInner() {
         edgeTypes={edgeTypes}
         colorMode={isDark ? 'dark' : 'light'}
         fitView
-        minZoom={0.2}
+        minZoom={0.05}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
+        selectionOnDrag
+        panOnDrag={[1, 2]}
+        selectionMode={SelectionMode.Partial}
+        deleteKeyCode={null}
       >
         <Background gap={20} size={1} />
         <Controls />
@@ -268,6 +457,17 @@ function CanvasInner() {
           zoomable
         />
       </ReactFlow>
+      {model.tables.length > 0 && (
+        <div
+          style={{
+            position: 'absolute', bottom: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 10,
+            fontSize: 11, color: 'var(--dm-muted)', background: 'var(--dm-bg)', opacity: 0.85,
+            border: '1px solid var(--dm-border)', borderRadius: 6, padding: '2px 10px', pointerEvents: 'none'
+          }}
+        >
+          {hostT('canvas.hint')}
+        </div>
+      )}
       <CanvasContextMenu state={menu} items={menuItems} onClose={() => setMenu(null)} />
     </div>
   )

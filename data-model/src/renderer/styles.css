@@ -9,6 +9,8 @@
   --dm-border-strong: #d9d9d9;
   --dm-primary: #1677ff;
   --dm-primary-soft: rgba(22, 119, 255, 0.15);
+  --dm-highlight: #fa8c16;
+  --dm-highlight-soft: rgba(250, 140, 22, 0.18);
   --dm-hover: rgba(0, 0, 0, 0.04);
   --dm-edge: #b0b0b0;
   --dm-mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
@@ -23,6 +25,8 @@
   --dm-border-strong: #424242;
   --dm-primary: #1668dc;
   --dm-primary-soft: rgba(22, 104, 220, 0.2);
+  --dm-highlight: #fa8c16;
+  --dm-highlight-soft: rgba(250, 140, 22, 0.22);
   --dm-hover: rgba(255, 255, 255, 0.06);
   --dm-edge: #555555;
 }

@@ -138,7 +138,7 @@ export function createTable(partial: Partial<Table> = {}): Table {
     color: partial.color ?? '#71717a',
     comment: partial.comment ?? null,
     isView: partial.isView ?? false,
-    expanded: partial.expanded ?? true,
+    expanded: partial.expanded ?? false,
     createdAt: Date.now()
   }
 }

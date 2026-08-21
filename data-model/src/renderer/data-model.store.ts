@@ -15,6 +15,7 @@ interface DataModelState {
   model: DataModel | null
   projects: ProjectRecord[]
   selectedTableId: string | null
+  selectedTableIds: string[]
   selectedRelationshipId: string | null
   focusRequest: { tableId: string; nonce: number } | null
   layoutRequest: number
@@ -39,13 +40,17 @@ interface DataModelState {
   applyRemoteModel: (model: DataModel) => void
   addTable: (table: Table) => void
   updateTable: (id: string, patch: Partial<Table>) => void
+  updateTables: (ids: string[], patch: Partial<Table>) => void
+  updateTablePositions: (positions: Array<{ id: string; x: number; y: number }>) => void
   removeTable: (id: string) => void
+  removeTables: (ids: string[]) => void
   addField: (tableId: string, field: Field) => void
   updateField: (tableId: string, fieldId: string, patch: Partial<Field>) => void
   removeField: (tableId: string, fieldId: string) => void
   addRelationship: (rel: Relationship) => void
   removeRelationship: (id: string) => void
   selectTable: (id: string | null) => void
+  setSelectedTables: (ids: string[]) => void
   selectRelationship: (id: string | null) => void
   focusTable: (id: string) => void
   requestLayout: () => void
@@ -94,6 +99,7 @@ export const useDataModelStore = create<DataModelState>((set, get) => ({
   model: null,
   projects: [],
   selectedTableId: null,
+  selectedTableIds: [],
   selectedRelationshipId: null,
   focusRequest: null,
   layoutRequest: 0,
@@ -140,6 +146,31 @@ export const useDataModelStore = create<DataModelState>((set, get) => ({
     void dm.syncModel(next)
   },
 
+  updateTables: (ids, patch) => {
+    const model = get().model
+    if (!model || ids.length === 0) return
+    const idSet = new Set(ids)
+    const next = cloneModel(model)
+    next.tables = next.tables.map((t) => (idSet.has(t.id) ? { ...t, ...patch } : t))
+    next.updatedAt = Date.now()
+    set({ model: next })
+    void dm.syncModel(next)
+  },
+
+  updateTablePositions: (positions) => {
+    const model = get().model
+    if (!model || positions.length === 0) return
+    const posMap = new Map(positions.map((p) => [p.id, p]))
+    const next = cloneModel(model)
+    next.tables = next.tables.map((t) => {
+      const p = posMap.get(t.id)
+      return p ? { ...t, x: p.x, y: p.y } : t
+    })
+    next.updatedAt = Date.now()
+    set({ model: next })
+    void dm.syncModel(next)
+  },
+
   removeTable: (id) => {
     const model = get().model
     if (!model) return
@@ -147,7 +178,19 @@ export const useDataModelStore = create<DataModelState>((set, get) => ({
     next.tables = next.tables.filter((t) => t.id !== id)
     next.relationships = next.relationships.filter((r) => r.sourceTableId !== id && r.targetTableId !== id)
     next.updatedAt = Date.now()
-    set({ model: next, selectedTableId: null })
+    set({ model: next, selectedTableId: null, selectedTableIds: [] })
+    void dm.syncModel(next)
+  },
+
+  removeTables: (ids) => {
+    const model = get().model
+    if (!model || ids.length === 0) return
+    const idSet = new Set(ids)
+    const next = cloneModel(model)
+    next.tables = next.tables.filter((t) => !idSet.has(t.id))
+    next.relationships = next.relationships.filter((r) => !idSet.has(r.sourceTableId) && !idSet.has(r.targetTableId))
+    next.updatedAt = Date.now()
+    set({ model: next, selectedTableId: null, selectedTableIds: [] })
     void dm.syncModel(next)
   },
 
@@ -206,8 +249,9 @@ export const useDataModelStore = create<DataModelState>((set, get) => ({
     void dm.syncModel(next)
   },
 
-  selectTable: (id) => set({ selectedTableId: id, selectedRelationshipId: null }),
-  selectRelationship: (id) => set({ selectedRelationshipId: id, selectedTableId: null }),
+  selectTable: (id) => set({ selectedTableId: id, selectedTableIds: id ? [id] : [], selectedRelationshipId: null }),
+  setSelectedTables: (ids) => set({ selectedTableIds: ids, selectedTableId: ids.length > 0 ? ids[ids.length - 1] : null, selectedRelationshipId: null }),
+  selectRelationship: (id) => set({ selectedRelationshipId: id, selectedTableId: null, selectedTableIds: [] }),
   focusTable: (id) => set((s) => ({ focusRequest: { tableId: id, nonce: (s.focusRequest?.nonce ?? 0) + 1 } })),
   requestLayout: () => set((s) => ({ layoutRequest: s.layoutRequest + 1 })),
 
@@ -219,21 +263,21 @@ export const useDataModelStore = create<DataModelState>((set, get) => ({
   createProject: async (name) => {
     const res = await dm.createProject(name)
     if ('model' in res) {
-      set({ model: cloneModel(res.model), selectedTableId: null, selectedRelationshipId: null })
+      set({ model: cloneModel(res.model), selectedTableId: null, selectedTableIds: [], selectedRelationshipId: null })
       await get().loadProjects()
     }
   },
 
   loadSample: () => {
     const sample = createSampleModel()
-    set({ model: cloneModel(sample), selectedTableId: null, selectedRelationshipId: null })
+    set({ model: cloneModel(sample), selectedTableId: null, selectedTableIds: [], selectedRelationshipId: null })
     void dm.syncModel(sample)
   },
 
   openProject: async (id) => {
     const res = await dm.openProject(id)
     if ('model' in res) {
-      set({ model: cloneModel(res.model), selectedTableId: null, selectedRelationshipId: null })
+      set({ model: cloneModel(res.model), selectedTableId: null, selectedTableIds: [], selectedRelationshipId: null })
     }
   },
 
@@ -306,7 +350,7 @@ export const useDataModelStore = create<DataModelState>((set, get) => ({
   importProjectFile: async () => {
     const res = await dm.importProjectFile()
     if (res.model) {
-      set({ model: cloneModel(res.model), selectedTableId: null, selectedRelationshipId: null })
+      set({ model: cloneModel(res.model), selectedTableId: null, selectedTableIds: [], selectedRelationshipId: null })
       await get().loadProjects()
     }
   },

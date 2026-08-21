@@ -4,7 +4,7 @@ import { memo } from 'react'
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type Edge, type EdgeProps } from '@xyflow/react'
 import type { Relationship } from '../../shared/domain'
 
-export type RelationshipEdgeData = { relationship: Relationship }
+export type RelationshipEdgeData = { relationship: Relationship; highlighted?: boolean }
 export type RelationshipEdgeType = Edge<RelationshipEdgeData>
 export type RelationshipEdgeComponentProps = EdgeProps<RelationshipEdgeType>
 
@@ -13,6 +13,7 @@ function RelationshipEdgeInner({ id, sourceX, sourceY, targetX, targetY, sourceP
     sourceX, sourceY, sourcePosition, targetX, targetY, targetPosition
   })
   const rel = data?.relationship
+  const highlighted = data?.highlighted
   const srcCard = rel?.sourceCardinality === 'many' ? 'N' : '1'
   const tgtCard = rel?.targetCardinality === 'many' ? 'N' : '1'
 
@@ -22,8 +23,8 @@ function RelationshipEdgeInner({ id, sourceX, sourceY, targetX, targetY, sourceP
         id={id}
         path={edgePath}
         style={{
-          stroke: selected ? 'var(--dm-primary)' : 'var(--dm-edge)',
-          strokeWidth: selected ? 2 : 1.5
+          stroke: selected ? 'var(--dm-primary)' : highlighted ? 'var(--dm-highlight)' : 'var(--dm-edge)',
+          strokeWidth: selected || highlighted ? 2.5 : 1.5
         }}
       />
       <EdgeLabelRenderer>
