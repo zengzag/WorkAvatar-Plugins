@@ -1541,6 +1541,97 @@ class CalendarService {
       dueAt: options.dueAt,
     }
   }
+
+  // ====== 导入导出 ======
+
+  /** 导出全部事件与待办（含重复规则、提醒等完整字段） */
+  exportData(): { version: number; exportedAt: number; events: CalendarEvent[]; todos: CalendarTodo[] } {
+    return {
+      version: 1,
+      exportedAt: Math.floor(Date.now() / 1000),
+      events: this.listAllEvents(),
+      todos: this.listAllTodos(),
+    }
+  }
+
+  /**
+   * 导入事件与待办，返回实际导入数量。
+   * 去重规则：事件按「标题 + 开始时间 + 结束时间」、待办按「标题 + 截止时间」判断，
+   * 已存在则跳过（不覆盖），避免重复导入产生冗余数据。
+   */
+  importData(data: { events?: CalendarEvent[]; todos?: CalendarTodo[] }): {
+    events: number
+    todos: number
+    skippedEvents: number
+    skippedTodos: number
+  } {
+    const now = Math.floor(Date.now() / 1000)
+    const insertedEventIds: string[] = []
+    const insertedTodoIds: string[] = []
+    let skippedEvents = 0
+    let skippedTodos = 0
+
+    const tx = this.db.transaction(() => {
+      for (const ev of data.events ?? []) {
+        if (!ev?.title || typeof ev.start_at !== 'number') { skippedEvents++; continue }
+        const dup = this.db.prepare(
+          `SELECT id FROM calendar_events WHERE title = ? AND start_at = ? AND end_at = ? LIMIT 1`
+        ).get(ev.title, ev.start_at, ev.end_at ?? ev.start_at)
+        if (dup) { skippedEvents++; continue }
+        const id = generateId()
+        this.db.prepare(
+          `INSERT INTO calendar_events (id, title, description, location, start_at, end_at, all_day, tzid, color, recurrence_rule, reminders_json, employee_id, source, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          id, ev.title, ev.description || '', ev.location || '',
+          ev.start_at, ev.end_at ?? ev.start_at, ev.all_day ? 1 : 0, ev.tzid || '',
+          ev.color || 'default', ev.recurrence_rule ? JSON.stringify(ev.recurrence_rule) : '',
+          JSON.stringify(ev.reminders ?? []), ev.employee_id ?? null, ev.source || 'user',
+          ev.created_at ?? now, ev.updated_at ?? now
+        )
+        insertedEventIds.push(id)
+      }
+      for (const td of data.todos ?? []) {
+        if (!td?.title) { skippedTodos++; continue }
+        const dup = this.db.prepare(
+          `SELECT id FROM calendar_todos WHERE title = ? AND due_at IS ? LIMIT 1`
+        ).get(td.title, td.due_at ?? null)
+        if (dup) { skippedTodos++; continue }
+        const id = generateId()
+        this.db.prepare(
+          `INSERT INTO calendar_todos (id, title, description, due_at, tzid, priority, status, recurrence_rule, reminders_json, started_at, completed_at, employee_id, source, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          id, td.title, td.description || '', td.due_at ?? null, td.tzid || '',
+          td.priority || 'none', td.status || 'pending',
+          td.recurrence_rule ? JSON.stringify(td.recurrence_rule) : '',
+          JSON.stringify(td.reminders ?? []),
+          td.started_at ?? null, td.completed_at ?? null,
+          td.employee_id ?? null, td.source || 'user',
+          td.created_at ?? now, td.updated_at ?? now
+        )
+        insertedTodoIds.push(id)
+      }
+    })
+    tx()
+
+    for (const id of insertedEventIds) {
+      const ev = this.getEvent(id)
+      if (ev) this.regenerateEventReminders(ev)
+    }
+    for (const id of insertedTodoIds) {
+      const td = this.getTodo(id)
+      if (td) this.regenerateTodoReminders(td)
+    }
+    this.invalidateTodoStatsCache()
+
+    return {
+      events: insertedEventIds.length,
+      todos: insertedTodoIds.length,
+      skippedEvents,
+      skippedTodos,
+    }
+  }
 }
 
 // ====== 单例 ======

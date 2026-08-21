@@ -40,17 +40,18 @@ describe('calendar 插件 activate', () => {
     mock = createMockContext('calendar')
   })
 
-  it('注册 20 个 IPC handler', async () => {
+  it('注册 22 个 IPC handler', async () => {
     const mod = await loadPlugin()
     mod.activate(mock.ctx)
     const channels = ['list-events', 'create-event', 'update-event', 'delete-event', 'delete-event-instance',
       'list-todos', 'list-todo-instances', 'create-todo', 'update-todo', 'delete-todo', 'delete-todo-instance', 'complete-todo', 'todo-stats',
       'get-settings', 'set-settings',
+      'export-data', 'import-data',
       'outlook-login', 'outlook-logout', 'outlook-status', 'outlook-set-config', 'outlook-sync-now']
     for (const c of channels) {
       expect(mock.ipc.handlers.has(c)).toBe(true)
     }
-    expect(mock.ipc.handlers.size).toBe(20)
+    expect(mock.ipc.handlers.size).toBe(22)
   })
 
   it('注册 10 个 agent 工具', async () => {
@@ -231,5 +232,52 @@ describe('calendar 插件 IPC 边界 case', () => {
     const set = mock.ipc.handlers.get('set-settings')!
     const res = await set({ reminders_enabled: false }) as { success?: boolean; error?: string }
     expect(res.error).toBeUndefined()
+  })
+})
+
+describe('calendar 插件导入去重', () => {
+  let mock: ReturnType<typeof createMockContext>
+
+  beforeEach(async () => {
+    mock = createMockContext('calendar')
+    const mod = await loadPlugin()
+    mod.activate(mock.ctx)
+  })
+
+  it('导入重复事件/待办时跳过，仅导入新数据', async () => {
+    const { getCalendarService } = await import('../../../calendar/src/main/calendar-service')
+    const svc = getCalendarService(mock.ctx)
+    // 先创建一条事件
+    const create = mock.ipc.handlers.get('create-event')!
+    await create({ title: '会议', start_at: 1000, end_at: 2000 })
+
+    const res = svc.importData({
+      events: [
+        // 与已存在事件重复 → 跳过
+        { title: '会议', start_at: 1000, end_at: 2000 },
+        // 新事件 → 导入
+        { title: '新会议', start_at: 3000, end_at: 4000 },
+      ],
+      todos: [
+        // 两条相同待办 → 仅导入一条
+        { title: '待办A', due_at: 5000 },
+        { title: '待办A', due_at: 5000 },
+      ],
+    })
+    expect(res.events).toBe(1)
+    expect(res.skippedEvents).toBe(1)
+    expect(res.todos).toBe(1)
+    expect(res.skippedTodos).toBe(1)
+  })
+
+  it('export-data 返回全部事件与待办', async () => {
+    const { getCalendarService } = await import('../../../calendar/src/main/calendar-service')
+    const svc = getCalendarService(mock.ctx)
+    const create = mock.ipc.handlers.get('create-event')!
+    await create({ title: '导出事件', start_at: 1000, end_at: 2000 })
+    const data = svc.exportData()
+    expect(data.version).toBe(1)
+    expect(data.events.length).toBe(1)
+    expect(data.events[0].title).toBe('导出事件')
   })
 })

@@ -186,15 +186,17 @@ export function createMockContext(pluginId = 'test-plugin'): {
           exec: (sql: string) => raw.exec(sql),
           function: (name: string, fn: (...a: unknown[]) => unknown) => raw.function(name, fn),
           pragma: () => { /* node:sqlite 无 pragma，忽略 */ },
-          transaction: <T,>(fn: () => T): T => {
-            raw.exec('BEGIN')
-            try {
-              const result = fn()
-              raw.exec('COMMIT')
-              return result
-            } catch (err) {
-              raw.exec('ROLLBACK')
-              throw err
+          transaction: <T,>(fn: () => T): (() => T) => {
+            return () => {
+              raw.exec('BEGIN')
+              try {
+                const result = fn()
+                raw.exec('COMMIT')
+                return result
+              } catch (err) {
+                raw.exec('ROLLBACK')
+                throw err
+              }
             }
           },
           close: () => raw.close(),

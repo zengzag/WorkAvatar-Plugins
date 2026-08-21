@@ -107,6 +107,10 @@ export const cal = {
   getSettings: () => invoke<CalendarSettings | { error: string }>('get-settings'),
   setSettings: (partial: Partial<CalendarSettings>) => invoke<CalendarSettings | { error: string }>('set-settings', partial),
 
+  // 导入导出
+  exportData: () => invoke<{ ok: boolean; canceled?: boolean; path?: string; events?: number; todos?: number; error?: string }>('export-data'),
+  importData: () => invoke<{ ok: boolean; canceled?: boolean; events?: number; todos?: number; skippedEvents?: number; skippedTodos?: number; error?: string }>('import-data'),
+
   // Outlook 同步
   outlook: {
     login: () => invoke<ResultWithError<OutlookSyncStatus>>('outlook-login'),

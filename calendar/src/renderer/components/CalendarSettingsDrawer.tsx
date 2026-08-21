@@ -4,6 +4,7 @@ import {
 } from 'antd'
 import {
   BellOutlined, NotificationOutlined, CloudSyncOutlined, LoginOutlined, LogoutOutlined, SyncOutlined,
+  ExportOutlined, ImportOutlined, DatabaseOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { cal } from '../store'
@@ -117,6 +118,45 @@ const CalendarSettingsDrawer: React.FC<CalendarSettingsDrawerProps> = ({
     } catch (err: any) {
       message.error(err?.message || t('calendar.outlookSyncFailed'))
       setSyncLoading(false)
+    }
+  }, [message, t])
+
+  const [dataLoading, setDataLoading] = useState(false)
+
+  const handleExport = useCallback(async () => {
+    setDataLoading(true)
+    try {
+      const result = await cal.exportData()
+      if (result?.error) {
+        message.error(result.error)
+      } else if (result?.ok) {
+        message.success(t('calendar.exportSuccess', { events: result.events ?? 0, todos: result.todos ?? 0 }))
+      }
+    } catch (err: any) {
+      message.error(err?.message || t('calendar.exportFailed'))
+    } finally {
+      setDataLoading(false)
+    }
+  }, [message, t])
+
+  const handleImport = useCallback(async () => {
+    setDataLoading(true)
+    try {
+      const result = await cal.importData()
+      if (result?.error) {
+        message.error(result.error)
+      } else if (result?.ok) {
+        message.success(t('calendar.importSuccess', {
+          events: result.events ?? 0,
+          todos: result.todos ?? 0,
+          skippedEvents: result.skippedEvents ?? 0,
+          skippedTodos: result.skippedTodos ?? 0,
+        }))
+      }
+    } catch (err: any) {
+      message.error(err?.message || t('calendar.importFailed'))
+    } finally {
+      setDataLoading(false)
     }
   }, [message, t])
 
@@ -349,6 +389,33 @@ const CalendarSettingsDrawer: React.FC<CalendarSettingsDrawerProps> = ({
     )
   }
 
+  const renderDataTab = () => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <Card size="small" style={cardStyle}>
+        <SettingsItem
+          title={t('calendar.exportData')}
+          description={t('calendar.exportDataHint')}
+          extra={
+            <Button size="small" icon={<ExportOutlined />} loading={dataLoading} onClick={handleExport}>
+              {t('calendar.exportDataButton')}
+            </Button>
+          }
+        />
+      </Card>
+      <Card size="small" style={cardStyle}>
+        <SettingsItem
+          title={t('calendar.importData')}
+          description={t('calendar.importDataHint')}
+          extra={
+            <Button size="small" icon={<ImportOutlined />} loading={dataLoading} onClick={handleImport}>
+              {t('calendar.importDataButton')}
+            </Button>
+          }
+        />
+      </Card>
+    </div>
+  )
+
   const tabItems = [
     {
       key: 'notification',
@@ -359,6 +426,11 @@ const CalendarSettingsDrawer: React.FC<CalendarSettingsDrawerProps> = ({
       key: 'reminders',
       label: <span><BellOutlined style={{ marginRight: 4 }} />{t('calendar.settingsTabReminders')}</span>,
       children: renderRemindersTab(),
+    },
+    {
+      key: 'data',
+      label: <span><DatabaseOutlined style={{ marginRight: 4 }} />{t('calendar.settingsTabData')}</span>,
+      children: renderDataTab(),
     },
     {
       key: 'outlook',

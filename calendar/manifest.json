@@ -12,6 +12,7 @@
     "list-events", "create-event", "update-event", "delete-event", "delete-event-instance",
     "list-todos", "list-todo-instances", "create-todo", "update-todo", "delete-todo", "delete-todo-instance", "complete-todo", "todo-stats",
     "get-settings", "set-settings",
+    "export-data", "import-data",
     "outlook-login", "outlook-logout", "outlook-status", "outlook-set-config", "outlook-sync-now"
   ],
   "permissions": ["legacyMigration"],

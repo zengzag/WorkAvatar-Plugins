@@ -286,6 +286,46 @@ function registerIpc(ctx: PluginContext): void {
     return next
   })
 
+  // ====== 导入导出 ======
+
+  ctx.ipc.handle('export-data', async () => {
+    const { dialog } = require('electron')
+    const data = calendar.exportData()
+    const res = await dialog.showSaveDialog({
+      title: '导出日历数据',
+      defaultPath: `calendar-export-${new Date().toISOString().slice(0, 10)}.json`,
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    })
+    if (res.canceled || !res.filePath) return { ok: false, canceled: true }
+    const fs = require('fs')
+    fs.writeFileSync(res.filePath, JSON.stringify(data, null, 2), 'utf-8')
+    return { ok: true, path: res.filePath, events: data.events.length, todos: data.todos.length }
+  })
+
+  ctx.ipc.handle('import-data', async () => {
+    const { dialog } = require('electron')
+    const res = await dialog.showOpenDialog({
+      title: '导入日历数据',
+      properties: ['openFile'],
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    })
+    if (res.canceled || !res.filePaths[0]) return { ok: false, canceled: true }
+    const fs = require('fs')
+    try {
+      const raw = JSON.parse(fs.readFileSync(res.filePaths[0], 'utf-8'))
+      const data = raw?.data ?? raw
+      if (!data || (!Array.isArray(data.events) && !Array.isArray(data.todos))) {
+        return { error: '文件格式不正确：缺少 events / todos 数据' }
+      }
+      const result = calendar.importData({ events: data.events, todos: data.todos })
+      broadcastDataChanged(ctx, 'event')
+      broadcastDataChanged(ctx, 'todo')
+      return { ok: true, ...result }
+    } catch (e: any) {
+      return { error: `导入失败: ${e?.message || String(e)}` }
+    }
+  })
+
   // ====== Outlook 同步 ======
 
   ctx.ipc.handle('outlook-login', async () => {
