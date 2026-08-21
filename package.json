@@ -1,0 +1,14 @@
+{
+  "name": "workavatar-plugins",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WorkAvatar 内置插件源码仓库（作为主仓库的 git submodule 依赖）",
+  "scripts": {
+    "test": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest --config vitest.config.ts"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  }
+}
