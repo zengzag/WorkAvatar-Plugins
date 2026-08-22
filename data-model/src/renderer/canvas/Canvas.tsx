@@ -33,6 +33,10 @@ function CanvasInner() {
   const selectedRelationshipId = useDataModelStore((s) => s.selectedRelationshipId)
   const focusRequest = useDataModelStore((s) => s.focusRequest)
   const layoutRequest = useDataModelStore((s) => s.layoutRequest)
+  const canUndo = useDataModelStore((s) => s.canUndo)
+  const canRedo = useDataModelStore((s) => s.canRedo)
+  const undo = useDataModelStore((s) => s.undo)
+  const redo = useDataModelStore((s) => s.redo)
   const { selectTable, setSelectedTables, selectRelationship, updateTable, updateTables, updateTablePositions, removeTable, removeTables, addTable, addRelationship, removeRelationship, requestLayout } = useDataModelStore.getState()
 
   const { isDark } = useAppearance()
@@ -89,7 +93,11 @@ function CanvasInner() {
       const existing = nds.filter((n) => tableMap.has(n.id))
       const updated = existing.map((n) => {
         const table = tableMap.get(n.id)!
-        return { ...n, data: { table, relationships: model.relationships } }
+        // 撤销/重做后的位置回写 React Flow 节点，使位置回退/还原生效
+        const position = (table.x !== n.position.x || table.y !== n.position.y)
+          ? { x: table.x, y: table.y }
+          : n.position
+        return { ...n, data: { table, relationships: model.relationships }, position }
       })
       const existingIds = new Set(nds.map((n) => n.id))
       const newTables = model.tables.filter((t) => !existingIds.has(t.id))
@@ -292,32 +300,49 @@ function CanvasInner() {
     removeTables(selectedTableIds)
   }, [selectedTableIds, removeTables])
 
-  // 对齐/分布：以 React Flow 内部节点（含拖拽后的最新位置）为准
+  // 对齐/分布：以 React Flow 内部节点（含拖拽后的最新位置）为准，
+  // 同时更新画布节点位置与 model 持久化（同步 effect 只更新 data，不覆盖 position，须在此显式 setNodes）
+  const applyPositions = useCallback((positions: Array<{ id: string; x: number; y: number }>) => {
+    const posMap = new Map(positions.map((p) => [p.id, p]))
+    setNodes((nds) => nds.map((n) => {
+      const p = posMap.get(n.id)
+      return p ? { ...n, position: { x: p.x, y: p.y } } : n
+    }))
+    updateTablePositions(positions)
+  }, [setNodes, updateTablePositions])
+
   const handleAlign = useCallback((mode: AlignMode) => {
     const selected = getNodes().filter((n) => n.selected)
     if (selected.length < 2) return
-    updateTablePositions(alignPositions(
+    applyPositions(alignPositions(
       selected.map((n) => ({ id: n.id, x: n.position.x, y: n.position.y })),
       mode
     ))
-  }, [getNodes, updateTablePositions])
+  }, [getNodes, applyPositions])
 
   const handleDistribute = useCallback((mode: DistributeMode) => {
     const selected = getNodes().filter((n) => n.selected)
     if (selected.length < 3) return
-    updateTablePositions(distributePositions(
+    applyPositions(distributePositions(
       selected.map((n) => ({ id: n.id, x: n.position.x, y: n.position.y })),
       mode
     ))
-  }, [getNodes, updateTablePositions])
+  }, [getNodes, applyPositions])
 
-  // 键盘快捷键：Ctrl+A 全选、Delete/Backspace 删除、Escape 取消选择
+  // 键盘快捷键：Ctrl+Z 撤销、Ctrl+Shift+Z/Ctrl+Y 重做、Ctrl+A 全选、Delete/Backspace 删除、Escape 取消选择
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return
       const mod = e.ctrlKey || e.metaKey
-      if (mod && (e.key === 'a' || e.key === 'A')) {
+      if (mod && (e.key === 'z' || e.key === 'Z')) {
+        e.preventDefault()
+        if (e.shiftKey) redo()
+        else undo()
+      } else if (mod && (e.key === 'y' || e.key === 'Y')) {
+        e.preventDefault()
+        redo()
+      } else if (mod && (e.key === 'a' || e.key === 'A')) {
         e.preventDefault()
         handleSelectAll()
       } else if (e.key === 'Escape') {
@@ -336,12 +361,17 @@ function CanvasInner() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [handleSelectAll, setSelectedTables, selectRelationship])
+  }, [handleSelectAll, setSelectedTables, selectRelationship, redo, undo])
 
   const menuItems = useMemo(() => {
     if (!menu) return []
     if (menu.type === 'pane') {
+      const historyItems: any[] = []
+      if (canUndo) historyItems.push({ key: 'undo', label: hostT('canvas.undo'), onClick: () => undo() })
+      if (canRedo) historyItems.push({ key: 'redo', label: hostT('canvas.redo'), onClick: () => redo() })
+      if (historyItems.length > 0) historyItems.push({ type: 'divider' as const, key: 'divider-hist' })
       return [
+        ...historyItems,
         { key: 'new-table', label: hostT('page.newTable'), onClick: handleNewTable },
         { key: 'select-all', label: hostT('canvas.selectAll'), onClick: handleSelectAll },
         { type: 'divider' as const, key: 'divider-1' },
@@ -375,7 +405,7 @@ function CanvasInner() {
     return [
       { key: 'delete', label: hostT('relationship.delete'), danger: true, onClick: () => removeRelationship(menu.edgeId) }
     ]
-  }, [menu, model, handleNewTable, requestLayout, selectTable, updateTable, removeTable, removeRelationship, selectedTableIds, handleSelectAll, handleCollapseAll, handleExpandAll, handleBatchCollapse, handleBatchExpand, handleBatchDelete])
+  }, [menu, model, handleNewTable, requestLayout, selectTable, updateTable, removeTable, removeRelationship, selectedTableIds, handleSelectAll, handleCollapseAll, handleExpandAll, handleBatchCollapse, handleBatchExpand, handleBatchDelete, canUndo, canRedo, undo, redo])
 
   if (!model) return null
 

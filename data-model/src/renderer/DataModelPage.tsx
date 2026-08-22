@@ -6,7 +6,7 @@ import {
   SaveOutlined, PlusOutlined, ImportOutlined, ExportOutlined,
   ApartmentOutlined, SettingOutlined, RightOutlined,
   DeleteOutlined, DownloadOutlined, UploadOutlined,
-  EditOutlined, MoreOutlined
+  EditOutlined, MoreOutlined, UndoOutlined, RedoOutlined
 } from '@ant-design/icons'
 import { Canvas } from './canvas/Canvas'
 import { TableInspector } from './inspector/TableInspector'
@@ -22,8 +22,11 @@ export function DataModelPage() {
   const projects = useDataModelStore((s) => s.projects)
   const selectedTableId = useDataModelStore((s) => s.selectedTableId)
   const selectedRelationshipId = useDataModelStore((s) => s.selectedRelationshipId)
-  const { setModel, applyRemoteModel, loadProjects, createProject, loadSample, openProject, deleteProject, renameProject, saveProject, loadProviders, requestLayout, addTable, loadSettings, loadDataDir, exportProjectFile, importProjectFile } = useDataModelStore.getState()
-  const { message } = App.useApp()
+  const canUndo = useDataModelStore((s) => s.canUndo)
+  const canRedo = useDataModelStore((s) => s.canRedo)
+  const isDirty = useDataModelStore((s) => s.isDirty)
+  const { setModel, applyRemoteModel, applyImportModel, loadProjects, createProject, loadSample, openProject, deleteProject, renameProject, saveProject, loadProviders, requestLayout, addTable, loadSettings, loadDataDir, exportProjectFile, importProjectFile, undo, redo } = useDataModelStore.getState()
+  const { message, modal } = App.useApp()
 
   const [sidebarView, setSidebarView] = useState<SidebarView>('explorer')
   const [panelCollapsed, setPanelCollapsed] = useState(false)
@@ -103,6 +106,27 @@ export function DataModelPage() {
     message.success(hostT('page.saved'))
   }
 
+  // 切换项目：有未保存修改时先提示保存，避免丢失
+  const handleProjectSelect = (id: string) => {
+    if (id === model?.id) return
+    const open = () => void openProject(id)
+    if (isDirty) {
+      modal.confirm({
+        title: hostT('page.unsavedTitle'),
+        content: hostT('page.unsavedDesc'),
+        okText: hostT('page.saveAndOpen'),
+        cancelText: hostT('page.discard'),
+        onOk: async () => {
+          await saveProject()
+          open()
+        },
+        onCancel: () => open(),
+      })
+    } else {
+      open()
+    }
+  }
+
   const handleCreateProject = async () => {
     await createProject(newProjectName || undefined)
     setNewProjectOpen(false)
@@ -138,9 +162,9 @@ export function DataModelPage() {
       return
     }
     if (importMode === 'replace') {
-      setModel(res.model)
+      applyImportModel(res.model)
     } else {
-      // merge：通过主进程工具并入
+      // merge：并入当前模型（保留可撤销历史）
       const cur = useDataModelStore.getState().model
       if (cur) {
         // 简单合并：追加不重名的表
@@ -190,7 +214,7 @@ export function DataModelPage() {
           style={{ width: 180 }}
           placeholder={hostT('page.projects')}
           value={model?.id}
-          onChange={(id) => void openProject(id)}
+          onChange={handleProjectSelect}
           options={projects.map((p) => ({ value: p.id, label: p.name }))}
           popupRender={(menu) => (
             <>
@@ -221,8 +245,21 @@ export function DataModelPage() {
             </>
           )}
         />
-        <Tooltip title={hostT('page.save')}>
-          <Button size="small" icon={<SaveOutlined />} onClick={handleSave} />
+        <Tooltip title={isDirty ? hostT('page.saveUnsaved') : hostT('page.save')}>
+          <Button size="small" icon={<SaveOutlined />} onClick={handleSave}>
+            {isDirty && (
+              <span
+                style={{ width: 6, height: 6, borderRadius: '50%', background: '#f59e0b', flexShrink: 0 }}
+                title={hostT('page.saveUnsaved')}
+              />
+            )}
+          </Button>
+        </Tooltip>
+        <Tooltip title={hostT('page.undo')}>
+          <Button size="small" icon={<UndoOutlined />} disabled={!canUndo} onClick={undo} />
+        </Tooltip>
+        <Tooltip title={hostT('page.redo')}>
+          <Button size="small" icon={<RedoOutlined />} disabled={!canRedo} onClick={redo} />
         </Tooltip>
         <Tooltip title={hostT('page.autoLayout')}>
           <Button size="small" icon={<ApartmentOutlined />} onClick={requestLayout} />

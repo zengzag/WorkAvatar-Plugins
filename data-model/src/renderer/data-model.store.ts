@@ -19,6 +19,13 @@ interface DataModelState {
   selectedRelationshipId: string | null
   focusRequest: { tableId: string; nonce: number } | null
   layoutRequest: number
+  // 撤销/重做历史
+  historyPast: DataModel[]
+  historyFuture: DataModel[]
+  canUndo: boolean
+  canRedo: boolean
+  /** 是否有未保存的修改 */
+  isDirty: boolean
   providers: any[]
   selectedProviderId: string | null
   selectedModelId: string | null
@@ -38,6 +45,8 @@ interface DataModelState {
   // model
   setModel: (model: DataModel | null) => void
   applyRemoteModel: (model: DataModel) => void
+  /** 应用批量导入的模型（DBML 文本导入等）：替换模型并清空历史 */
+  applyImportModel: (model: DataModel) => void
   addTable: (table: Table) => void
   updateTable: (id: string, patch: Partial<Table>) => void
   updateTables: (ids: string[], patch: Partial<Table>) => void
@@ -54,6 +63,9 @@ interface DataModelState {
   selectRelationship: (id: string | null) => void
   focusTable: (id: string) => void
   requestLayout: () => void
+  // undo/redo
+  undo: () => void
+  redo: () => void
 
   // projects
   loadProjects: () => Promise<void>
@@ -95,6 +107,36 @@ function cloneModel(model: DataModel): DataModel {
   return JSON.parse(JSON.stringify(model)) as DataModel
 }
 
+const HISTORY_LIMIT = 50
+const COALESCE_MS = 1500
+let lastCoalesce: { key: string; at: number } | null = null
+
+/** 记录一次可撤销变更：把变更前的模型快照压入撤销栈，并标记未保存 */
+function pushUndo(prev: DataModel | null): void {
+  if (!prev) return
+  const past = [...useDataModelStore.getState().historyPast, prev].slice(-HISTORY_LIMIT)
+  useDataModelStore.setState({ historyPast: past, historyFuture: [], canUndo: true, canRedo: false, isDirty: true })
+}
+
+/** 记录一次可撤销变更，连续对同一目标的高频编辑合并为一条撤销记录（如表名/字段名逐字输入） */
+function pushCoalescedUndo(prev: DataModel | null, key: string): void {
+  if (!prev) return
+  const now = Date.now()
+  if (lastCoalesce && lastCoalesce.key === key && now - lastCoalesce.at < COALESCE_MS) {
+    lastCoalesce.at = now
+    // 同一编辑手势内：保留最初的"变更前"快照，单次撤销即可整段回退
+    useDataModelStore.setState({ historyFuture: [], canRedo: false, isDirty: true })
+    return
+  }
+  lastCoalesce = { key, at: now }
+  pushUndo(prev)
+}
+
+function resetHistory(): void {
+  lastCoalesce = null
+  useDataModelStore.setState({ historyPast: [], historyFuture: [], canUndo: false, canRedo: false })
+}
+
 export const useDataModelStore = create<DataModelState>((set, get) => ({
   model: null,
   projects: [],
@@ -103,6 +145,11 @@ export const useDataModelStore = create<DataModelState>((set, get) => ({
   selectedRelationshipId: null,
   focusRequest: null,
   layoutRequest: 0,
+  historyPast: [],
+  historyFuture: [],
+  canUndo: false,
+  canRedo: false,
+  isDirty: false,
   providers: [],
   selectedProviderId: null,
   selectedModelId: null,
@@ -121,45 +168,59 @@ export const useDataModelStore = create<DataModelState>((set, get) => ({
   applyRemoteModel: (model) => {
     const prev = get().model
     const topologyChanged = !prev || topologyChangedFn(prev, model)
+    pushUndo(prev)
     set({ model: cloneModel(model) })
     // AI 工具增删表时触发自动排版；纯字段/属性编辑不打扰用户已排好的位置
     if (topologyChanged) set((s) => ({ layoutRequest: s.layoutRequest + 1 }))
   },
 
+  applyImportModel: (model) => {
+    set({ model: cloneModel(model), selectedTableId: null, selectedTableIds: [], selectedRelationshipId: null })
+    resetHistory()
+    set({ isDirty: true })
+  },
+
   addTable: (table) => {
     const model = get().model
     if (!model) return
+    const prev = cloneModel(model)
     const next = cloneModel(model)
     next.tables.push(table)
     next.updatedAt = Date.now()
     set({ model: next })
+    pushUndo(prev)
     void dm.syncModel(next)
   },
 
   updateTable: (id, patch) => {
     const model = get().model
     if (!model) return
+    const prev = cloneModel(model)
     const next = cloneModel(model)
     next.tables = next.tables.map((t) => (t.id === id ? { ...t, ...patch } : t))
     next.updatedAt = Date.now()
     set({ model: next })
+    pushCoalescedUndo(prev, `table-${id}`)
     void dm.syncModel(next)
   },
 
   updateTables: (ids, patch) => {
     const model = get().model
     if (!model || ids.length === 0) return
+    const prev = cloneModel(model)
     const idSet = new Set(ids)
     const next = cloneModel(model)
     next.tables = next.tables.map((t) => (idSet.has(t.id) ? { ...t, ...patch } : t))
     next.updatedAt = Date.now()
     set({ model: next })
+    pushUndo(prev)
     void dm.syncModel(next)
   },
 
   updateTablePositions: (positions) => {
     const model = get().model
     if (!model || positions.length === 0) return
+    const prev = cloneModel(model)
     const posMap = new Map(positions.map((p) => [p.id, p]))
     const next = cloneModel(model)
     next.tables = next.tables.map((t) => {
@@ -168,57 +229,67 @@ export const useDataModelStore = create<DataModelState>((set, get) => ({
     })
     next.updatedAt = Date.now()
     set({ model: next })
+    pushUndo(prev)
     void dm.syncModel(next)
   },
 
   removeTable: (id) => {
     const model = get().model
     if (!model) return
+    const prev = cloneModel(model)
     const next = cloneModel(model)
     next.tables = next.tables.filter((t) => t.id !== id)
     next.relationships = next.relationships.filter((r) => r.sourceTableId !== id && r.targetTableId !== id)
     next.updatedAt = Date.now()
     set({ model: next, selectedTableId: null, selectedTableIds: [] })
+    pushUndo(prev)
     void dm.syncModel(next)
   },
 
   removeTables: (ids) => {
     const model = get().model
     if (!model || ids.length === 0) return
+    const prev = cloneModel(model)
     const idSet = new Set(ids)
     const next = cloneModel(model)
     next.tables = next.tables.filter((t) => !idSet.has(t.id))
     next.relationships = next.relationships.filter((r) => !idSet.has(r.sourceTableId) && !idSet.has(r.targetTableId))
     next.updatedAt = Date.now()
     set({ model: next, selectedTableId: null, selectedTableIds: [] })
+    pushUndo(prev)
     void dm.syncModel(next)
   },
 
   addField: (tableId, field) => {
     const model = get().model
     if (!model) return
+    const prev = cloneModel(model)
     const next = cloneModel(model)
     next.tables = next.tables.map((t) => (t.id === tableId ? { ...t, fields: [...t.fields, field] } : t))
     next.updatedAt = Date.now()
     set({ model: next })
+    pushUndo(prev)
     void dm.syncModel(next)
   },
 
   updateField: (tableId, fieldId, patch) => {
     const model = get().model
     if (!model) return
+    const prev = cloneModel(model)
     const next = cloneModel(model)
     next.tables = next.tables.map((t) =>
       t.id === tableId ? { ...t, fields: t.fields.map((f) => (f.id === fieldId ? { ...f, ...patch } : f)) } : t
     )
     next.updatedAt = Date.now()
     set({ model: next })
+    pushCoalescedUndo(prev, `field-${tableId}-${fieldId}`)
     void dm.syncModel(next)
   },
 
   removeField: (tableId, fieldId) => {
     const model = get().model
     if (!model) return
+    const prev = cloneModel(model)
     const next = cloneModel(model)
     next.tables = next.tables.map((t) =>
       t.id === tableId ? { ...t, fields: t.fields.filter((f) => f.id !== fieldId) } : t
@@ -226,26 +297,31 @@ export const useDataModelStore = create<DataModelState>((set, get) => ({
     next.relationships = next.relationships.filter((r) => r.sourceFieldId !== fieldId && r.targetFieldId !== fieldId)
     next.updatedAt = Date.now()
     set({ model: next })
+    pushUndo(prev)
     void dm.syncModel(next)
   },
 
   addRelationship: (rel) => {
     const model = get().model
     if (!model) return
+    const prev = cloneModel(model)
     const next = cloneModel(model)
     next.relationships.push(rel)
     next.updatedAt = Date.now()
     set({ model: next })
+    pushUndo(prev)
     void dm.syncModel(next)
   },
 
   removeRelationship: (id) => {
     const model = get().model
     if (!model) return
+    const prev = cloneModel(model)
     const next = cloneModel(model)
     next.relationships = next.relationships.filter((r) => r.id !== id)
     next.updatedAt = Date.now()
     set({ model: next, selectedRelationshipId: null })
+    pushUndo(prev)
     void dm.syncModel(next)
   },
 
@@ -254,6 +330,41 @@ export const useDataModelStore = create<DataModelState>((set, get) => ({
   selectRelationship: (id) => set({ selectedRelationshipId: id, selectedTableId: null, selectedTableIds: [] }),
   focusTable: (id) => set((s) => ({ focusRequest: { tableId: id, nonce: (s.focusRequest?.nonce ?? 0) + 1 } })),
   requestLayout: () => set((s) => ({ layoutRequest: s.layoutRequest + 1 })),
+
+  undo: () => {
+    const state = get()
+    if (state.historyPast.length === 0 || !state.model) return
+    const prev = state.historyPast[state.historyPast.length - 1]
+    const past = state.historyPast.slice(0, -1)
+    const next = cloneModel(prev)
+    lastCoalesce = null
+    set({
+      model: next,
+      historyPast: past,
+      historyFuture: [...state.historyFuture, cloneModel(state.model)],
+      canUndo: past.length > 0,
+      canRedo: true,
+      isDirty: true,
+    })
+    void dm.syncModel(next)
+  },
+
+  redo: () => {
+    const state = get()
+    if (state.historyFuture.length === 0 || !state.model) return
+    const next = cloneModel(state.historyFuture[state.historyFuture.length - 1])
+    const future = state.historyFuture.slice(0, -1)
+    lastCoalesce = null
+    set({
+      model: next,
+      historyPast: [...state.historyPast, cloneModel(state.model)],
+      historyFuture: future,
+      canUndo: true,
+      canRedo: future.length > 0,
+      isDirty: true,
+    })
+    void dm.syncModel(next)
+  },
 
   loadProjects: async () => {
     const projects = await dm.listProjects()
@@ -264,6 +375,8 @@ export const useDataModelStore = create<DataModelState>((set, get) => ({
     const res = await dm.createProject(name)
     if ('model' in res) {
       set({ model: cloneModel(res.model), selectedTableId: null, selectedTableIds: [], selectedRelationshipId: null })
+      resetHistory()
+      set({ isDirty: false })
       await get().loadProjects()
     }
   },
@@ -271,6 +384,8 @@ export const useDataModelStore = create<DataModelState>((set, get) => ({
   loadSample: () => {
     const sample = createSampleModel()
     set({ model: cloneModel(sample), selectedTableId: null, selectedTableIds: [], selectedRelationshipId: null })
+    resetHistory()
+    set({ isDirty: true })
     void dm.syncModel(sample)
   },
 
@@ -278,6 +393,8 @@ export const useDataModelStore = create<DataModelState>((set, get) => ({
     const res = await dm.openProject(id)
     if ('model' in res) {
       set({ model: cloneModel(res.model), selectedTableId: null, selectedTableIds: [], selectedRelationshipId: null })
+      resetHistory()
+      set({ isDirty: false })
     }
   },
 
@@ -289,6 +406,7 @@ export const useDataModelStore = create<DataModelState>((set, get) => ({
   saveProject: async () => {
     await dm.saveProject()
     await get().loadProjects()
+    set({ isDirty: false })
   },
 
   renameProject: async (id, name) => {
@@ -351,6 +469,8 @@ export const useDataModelStore = create<DataModelState>((set, get) => ({
     const res = await dm.importProjectFile()
     if (res.model) {
       set({ model: cloneModel(res.model), selectedTableId: null, selectedTableIds: [], selectedRelationshipId: null })
+      resetHistory()
+      set({ isDirty: false })
       await get().loadProjects()
     }
   },
