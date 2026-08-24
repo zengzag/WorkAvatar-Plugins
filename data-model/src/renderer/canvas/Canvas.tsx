@@ -37,7 +37,7 @@ function CanvasInner() {
   const canRedo = useDataModelStore((s) => s.canRedo)
   const undo = useDataModelStore((s) => s.undo)
   const redo = useDataModelStore((s) => s.redo)
-  const { selectTable, setSelectedTables, selectRelationship, updateTable, updateTables, updateTablePositions, removeTable, removeTables, addTable, addRelationship, removeRelationship, requestLayout } = useDataModelStore.getState()
+  const { selectTable, setSelectedTables, selectRelationship, updateTable, updateTables, updateTablePositions, applyInitialPositions, removeTable, removeTables, addTable, addRelationship, removeRelationship, requestLayout } = useDataModelStore.getState()
 
   const { isDark } = useAppearance()
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<TableNodeData>>([])
@@ -46,8 +46,8 @@ function CanvasInner() {
   const containerRef = useRef<HTMLDivElement>(null)
   const { setCenter, getNode, getNodes, fitView } = useReactFlow()
 
-  // 用于检测 model 是否切换（新项目加载）
-  const prevModelId = useRef<string | undefined>(model?.id)
+  // 用于检测 model 是否切换（新项目加载）；初始为 undefined，保证首次挂载也会初始化画布
+  const prevModelId = useRef<string | undefined>()
 
   // 当 model 切换（新项目加载）时，重新自动布局
   useEffect(() => {
@@ -60,13 +60,13 @@ function CanvasInner() {
     if (prevModelId.current !== model.id) {
       prevModelId.current = model.id
       const width = containerRef.current?.clientWidth ?? 800
-      const { nodes: laidOut } = layoutTables(model, width)
-      setNodes(laidOut.map((l) => ({
-        id: l.id,
-        type: 'table',
-        position: l.position,
-        data: { table: model.tables.find((t) => t.id === l.id)!, relationships: model.relationships }
-      })))
+      // 缺失坐标的新项目自动排版并持久化；已有排列的项目保留用户布局
+      const hasAllPositions = model.tables.length === 0 || model.tables.every((t) => typeof t.x === 'number' && typeof t.y === 'number')
+      const laidOut = hasAllPositions ? null : layoutTables(model, width).nodes
+      setNodes(model.tables.map((t) => {
+        const pos = laidOut ? laidOut.find((l) => l.id === t.id)!.position : { x: t.x ?? 200, y: t.y ?? 200 }
+        return { id: t.id, type: 'table', position: pos, data: { table: t, relationships: model.relationships } }
+      }))
       setEdges(model.relationships.map((r) => ({
         id: r.id,
         type: 'relationship',
@@ -76,8 +76,9 @@ function CanvasInner() {
         targetHandle: `field-${r.targetFieldId}-left`,
         data: { relationship: r }
       })))
+      if (laidOut) applyInitialPositions(laidOut.map((l) => ({ id: l.id, x: l.position.x, y: l.position.y })))
     }
-  }, [model, setNodes, setEdges])
+  }, [model, setNodes, setEdges, applyInitialPositions])
 
   // 当 model 内的 tables/relationships 变化时，同步节点数据（不重布局）
   // - 已有节点：更新 data（保留用户拖拽的 position）
@@ -93,8 +94,10 @@ function CanvasInner() {
       const existing = nds.filter((n) => tableMap.has(n.id))
       const updated = existing.map((n) => {
         const table = tableMap.get(n.id)!
-        // 撤销/重做后的位置回写 React Flow 节点，使位置回退/还原生效
-        const position = (table.x !== n.position.x || table.y !== n.position.y)
+        // 撤销/重做后的位置回写 React Flow 节点，使位置回退/还原生效；
+        // 仅当表保存了有效坐标时才覆盖，避免缺失/陈旧坐标把节点打回原点导致堆积
+        const hasPos = typeof table.x === 'number' && typeof table.y === 'number'
+        const position = hasPos && (table.x !== n.position.x || table.y !== n.position.y)
           ? { x: table.x, y: table.y }
           : n.position
         return { ...n, data: { table, relationships: model.relationships }, position }
@@ -187,11 +190,13 @@ function CanvasInner() {
       targetHandle: `field-${r.targetFieldId}-left`,
       data: { relationship: r }
     })))
+    // 持久化布局位置：既让"保存"后的布局在再次进入时得以保留，也保证 model 与画布节点坐标始终一致
+    updateTablePositions(laidOut.map((l) => ({ id: l.id, x: l.position.x, y: l.position.y })))
     const raf = requestAnimationFrame(() => {
       try { fitView({ padding: 0.2, duration: 300 }) } catch { /* 节点未挂载时忽略 */ }
     })
     return () => cancelAnimationFrame(raf)
-  }, [layoutRequest, setNodes, setEdges, fitView])
+  }, [layoutRequest, setNodes, setEdges, fitView, updateTablePositions])
 
   // 聚焦：仅在 focusRequest 变化时执行，避免 model 变化（如拖拽节点）导致视图被拉回选中表
   useEffect(() => {

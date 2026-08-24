@@ -53,6 +53,8 @@ interface DataModelState {
   updateTablePositions: (positions: Array<{ id: string; x: number; y: number }>) => void
   removeTable: (id: string) => void
   removeTables: (ids: string[]) => void
+  /** 初始加载自动排版：写入位置并持久化，但不计入撤销历史、不标记未保存 */
+  applyInitialPositions: (positions: Array<{ id: string; x: number; y: number }>) => void
   addField: (tableId: string, field: Field) => void
   updateField: (tableId: string, fieldId: string, patch: Partial<Field>) => void
   removeField: (tableId: string, fieldId: string) => void
@@ -230,6 +232,20 @@ export const useDataModelStore = create<DataModelState>((set, get) => ({
     next.updatedAt = Date.now()
     set({ model: next })
     pushUndo(prev)
+    void dm.syncModel(next)
+  },
+
+  applyInitialPositions: (positions) => {
+    const model = get().model
+    if (!model || positions.length === 0) return
+    const posMap = new Map(positions.map((p) => [p.id, p]))
+    const next = cloneModel(model)
+    next.tables = next.tables.map((t) => {
+      const p = posMap.get(t.id)
+      return p ? { ...t, x: p.x, y: p.y } : t
+    })
+    next.updatedAt = Date.now()
+    set({ model: next })
     void dm.syncModel(next)
   },
 

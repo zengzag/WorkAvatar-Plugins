@@ -9,6 +9,16 @@ export const HEADER_HEIGHT = 36
 
 /** 节点间最小水平/垂直间距（避免重叠） */
 const NODE_GAP = 40
+/** 有关系连接的节点额外间距（半张表宽），使相邻表不至于贴得过近 */
+const EDGE_EXTRA = NODE_WIDTH / 2
+/** 中心引力系数：轻微把节点拉向质心，保持整体紧凑 */
+const CENTER_ATTRACTION = 0.04
+/** 孤立节点（无任何关系）质心引力系数（仅全图无连接时使用），使各表紧凑排列 */
+const ISOLATED_CENTER_ATTRACTION = 0.2
+/** 孤立节点弹簧系数：吸向最近的连接节点，悬浮在集群边缘 */
+const ISOLATED_SPRING = 2
+/** 孤立节点与最近连接节点的目标距离（约一张表宽 + 双倍间隙） */
+const ISOLATED_TARGET = NODE_WIDTH + NODE_GAP * 2
 
 /**
  * 计算指定表在画布上应渲染的字段列表。
@@ -107,8 +117,9 @@ export function layoutTables(model: DataModel, width: number): LayoutResult {
         let dx = pa.x - pb.x
         let dy = pa.y - pb.y
         let d = Math.sqrt(dx * dx + dy * dy)
-        // 最小间距取两节点半宽之和，避免重叠
-        const minD = (sizes.get(a.id)!.w + sizes.get(b.id)!.w) / 2 + NODE_GAP
+        // 最小间距取两节点半宽之和，避免重叠；有连接的节点额外留出半表宽间距
+        const connected = adj.get(a.id)!.has(b.id)
+        const minD = (sizes.get(a.id)!.w + sizes.get(b.id)!.w) / 2 + NODE_GAP + (connected ? EDGE_EXTRA : 0)
         if (d < 1) {
           dx = 1
           dy = 0
@@ -148,6 +159,62 @@ export function layoutTables(model: DataModel, width: number): LayoutResult {
       dt.y += fy
     }
 
+    // 中心引力：轻微把有连接的节点拉向整体质心，保持整体紧凑
+    let ccx = 0
+    let ccy = 0
+    for (const t of tables) {
+      const p = pos.get(t.id)!
+      ccx += p.x
+      ccy += p.y
+    }
+    ccx /= n
+    ccy /= n
+    for (const t of tables) {
+      const p = pos.get(t.id)!
+      const dx = ccx - p.x
+      const dy = ccy - p.y
+      const d = Math.sqrt(dx * dx + dy * dy) || 1
+      const f = (CENTER_ATTRACTION * d) / k
+      const di = disp.get(t.id)!
+      di.x += (dx / d) * f
+      di.y += (dy / d) * f
+    }
+
+    // 孤立节点（无任何关系）：
+    // - 存在连接节点时，用弹簧力吸向最近的连接节点，使其像卫星一样悬浮在主体集群边缘
+    // - 全部孤立时，改为较强的质心引力，使各表紧凑排列
+    const hasConnected = tables.some((t) => adj.get(t.id)!.size > 0)
+    for (const t of tables) {
+      if (adj.get(t.id)!.size > 0) continue
+      const p = pos.get(t.id)!
+      const di = disp.get(t.id)!
+      if (hasConnected) {
+        let nx = 0
+        let ny = 0
+        let nd = Infinity
+        for (const c of tables) {
+          if (adj.get(c.id)!.size === 0) continue
+          const pc = pos.get(c.id)!
+          const d = Math.hypot(p.x - pc.x, p.y - pc.y)
+          if (d < nd) { nd = d; nx = pc.x; ny = pc.y }
+        }
+        const dx = nx - p.x
+        const dy = ny - p.y
+        const d = Math.sqrt(dx * dx + dy * dy) || 1
+        // 弹簧力与全体斥力平衡后，孤立节点稳定在目标距离附近（约一张表宽）
+        const f = ISOLATED_SPRING * (d - ISOLATED_TARGET)
+        di.x += (dx / d) * f
+        di.y += (dy / d) * f
+      } else {
+        const dx = ccx - p.x
+        const dy = ccy - p.y
+        const d = Math.sqrt(dx * dx + dy * dy) || 1
+        const f = (ISOLATED_CENTER_ATTRACTION * d) / k
+        di.x += (dx / d) * f
+        di.y += (dy / d) * f
+      }
+    }
+
     // 更新位置，限制单步最大位移为当前温度
     const temp = maxTemp * (1 - iter / maxIter)
     for (const t of tables) {
@@ -172,9 +239,12 @@ export function layoutTables(model: DataModel, width: number): LayoutResult {
         const pb = pos.get(b.id)!
         const sa = sizes.get(a.id)!
         const sb = sizes.get(b.id)!
+        // 有连接的节点额外留出半表宽间距，避免相邻表贴得过近
+        const connected = adj.get(a.id)!.has(b.id)
+        const gap = SEP_GAP + (connected ? EDGE_EXTRA : 0)
         // 两矩形在 x/y 方向的重叠量
-        const overlapX = (sa.w + sb.w) / 2 + SEP_GAP - Math.abs(pa.x - pb.x)
-        const overlapY = (sa.h + sb.h) / 2 + SEP_GAP - Math.abs(pa.y - pb.y)
+        const overlapX = (sa.w + sb.w) / 2 + gap - Math.abs(pa.x - pb.x)
+        const overlapY = (sa.h + sb.h) / 2 + gap - Math.abs(pa.y - pb.y)
         if (overlapX <= 0 || overlapY <= 0) continue
         // 沿重叠量较小的方向分离，移动量最小
         if (overlapX < overlapY) {
