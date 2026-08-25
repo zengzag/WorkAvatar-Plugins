@@ -107,7 +107,9 @@ const TodoFormModal: React.FC<TodoFormModalProps> = ({
     let dueAt: number | null = null
     if (values.hasDue && values.dueDate) {
       const [th, tm] = (values.dueTime || '23:59').split(':').map(Number)
-      const dueMs = values.dueDate.hour(th || 23).minute(tm || 59).second(0).millisecond(0).valueOf()
+      const hh = Number.isFinite(th) ? th : 23
+      const mm = Number.isFinite(tm) ? tm : 59
+      const dueMs = values.dueDate.hour(hh).minute(mm).second(0).millisecond(0).valueOf()
       dueAt = Math.floor(dueMs / MS)
     }
 
