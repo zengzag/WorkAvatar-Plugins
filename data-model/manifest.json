@@ -1,7 +1,7 @@
 {
   "id": "data-model",
   "name": "Data Model",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "engine": ">=0.2.0",
   "description": "数据模型可视化编辑与智能体对话，支持表/字段/关系编辑、DBML 导入导出、AI 建模",
   "author": "WorkAvatar",
