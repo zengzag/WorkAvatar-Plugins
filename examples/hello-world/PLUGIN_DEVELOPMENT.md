@@ -36,6 +36,7 @@ my-plugin/
 │   ├── main/index.ts       # 主进程入口（编译为 dist/main/index.cjs）
 │   └── renderer/index.tsx  # 渲染端入口（编译为 dist/renderer/index.js，可省略）
 ├── resources/              # 自包含重资源（onnx 模型等），只读，随 zip 分发
+├── skills/                 # 可选：内置 Skills（每个子目录含 SKILL.md，见 §5.1），随 zip 分发
 └── locale/                 # zh-CN.json / en-US.json（多语言文案）
 ```
 
@@ -177,6 +178,25 @@ export function deactivate(): void {
 
 * 原生模块用 `ctx.services.native.borrow('better-sqlite3')` 租借，禁止自带 `.node`。
 
+### 5.1 内置 Skills（可选，纯目录约定）
+
+插件可将自己擅长的领域知识以内置 Skill 形式随插件分发：**无需任何代码与 manifest 声明**，只需在插件根目录放 `skills/<技能名>/SKILL.md`（对齐 [agentskills.io](https://agentskills.io/) 开放标准格式，要求 `name` 与目录名一致）：
+
+```
+my-plugin/
+└── skills/
+    └── quick-json/
+        ├── SKILL.md                      # YAML frontmatter + Markdown 正文
+        └── references/*.md               # 可选：渐进披露第 3 层的按需参考资料
+        └── scripts/                      # 可选：可执行脚本（需技能声明 allowed-tools 含 run_skill_script）
+```
+
+插件激活时宿主自动注册这些技能（来源标记「插件」），安装插件即扩充系统的技能池：
+
+* 技能进入员工设置 → 技能 Tab 的「可用 Skills」列表，**分配给数字员工**后被该员工发现与调用（`activate_skill` / references 按需读取三步渐进披露照常生效）。
+* 禁用/删除插件时技能随之从可用池下线，禁用期间员工分配记录保留，重新启用后自动恢复。
+* 技能能力无需新增 capabilities 授权：`skills/` 属纯静态资源，随 `.wap` 打包分发（与 `resources/` 同级处理）。
+
 ## 5. 编写渲染端入口
 
 `src/renderer/index.tsx`：
@@ -255,7 +275,7 @@ node scripts/build-plugins.mjs my-plugin --zip
 
 * `dependencies` 会被打包进 `dist/`，随包分发；`nativeDependencies` 不打包、由宿主借用；`devDependencies` 不随分发。
 
-* 分发包内容仅含运行时必需文件：`manifest.json` + `dist/**` + `locale/**` + `resources/**`。文件后缀为 `.wap`（WorkAvatar 插件包，内部仍为 zip 归档）。
+* 分发包内容仅含运行时必需文件：`manifest.json` + `dist/**` + `locale/**` + `resources/**` + `skills/**`。文件后缀为 `.wap`（WorkAvatar 插件包，内部仍为 zip 归档）。
 
 如果你在**独立仓库**开发插件，复制上述构建思路即可（核心是主进程出 CJS、渲染端出被 shim 的 ESM、产出约定结构的包）。ship 产物是单个 `<id>-v<version>.wap`。
 
