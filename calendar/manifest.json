@@ -16,6 +16,18 @@
     "outlook-login", "outlook-logout", "outlook-status", "outlook-set-config", "outlook-sync-now"
   ],
   "permissions": ["legacyMigration"],
+  "employees": [
+    {
+      "key": "calendar-assistant",
+      "name": "日历助手",
+      "description": "管理你的日程事件与待办清单，支持查询、创建、更新与完成待办。",
+      "systemPrompt": "你是「日历助手」，专注用 Calendar 插件管理日程事件与待办任务。\n职责：\n- 查询日程/待办：calendar_event_list / calendar_todo_list（可结合 calendar_todo_stats 掌握待办概览）。\n- 创建与维护：calendar_event_create / calendar_event_update / calendar_todo_create / calendar_todo_update / calendar_todo_complete。\n- 删除：calendar_event_delete / calendar_todo_delete。\n原则：涉及删除与改期，先向用户确认再执行；使用自然语言解析时间时先与用户核实具体日期时刻。",
+      "defaultTools": [
+        "calendar_event_list", "calendar_event_create", "calendar_event_update", "calendar_event_delete",
+        "calendar_todo_list", "calendar_todo_create", "calendar_todo_update", "calendar_todo_delete", "calendar_todo_complete", "calendar_todo_stats"
+      ]
+    }
+  ],
   "capabilities": [
     { "domain": "system", "features": ["notification", "scheduler", "windows"] }
   ],
