@@ -275,7 +275,7 @@ node scripts/build-plugins.mjs my-plugin --zip
 
 * `dependencies` 会被打包进 `dist/`，随包分发；`nativeDependencies` 不打包、由宿主借用；`devDependencies` 不随分发。
 
-* 分发包内容仅含运行时必需文件：`manifest.json` + `dist/**` + `locale/**` + `resources/**` + `skills/**`。文件后缀为 `.wap`（WorkAvatar 插件包，内部仍为 zip 归档）。
+* 分发包（`.wap`，内部仍为 zip 归档）**默认包含源码**：`src/**` + `package.json` + `tsconfig.json` 随包分发。已安装插件目录（`userData/plugins/<id>/`）因此自带源码与依赖声明，可 `npm install` 后直接修改 `src/` 再用构建脚本重建（AI / 用户二次开发）；如需分发仅含运行时必需文件（`manifest.json` + `dist/**` + `locale/**` + `resources/**` + `skills/**`）的精简包，在 `--zip` 基础上追加 `--no-source`。
 
 如果你在**独立仓库**开发插件，复制上述构建思路即可（核心是主进程出 CJS、渲染端出被 shim 的 ESM、产出约定结构的包）。ship 产物是单个 `<id>-v<version>.wap`。
 
