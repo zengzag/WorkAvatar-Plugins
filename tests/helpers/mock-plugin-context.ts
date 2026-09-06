@@ -49,6 +49,18 @@ export interface MockEvents {
   publish: (event: string, payload?: unknown) => void
 }
 
+/** native.borrow('better-sqlite3') 返回的可实例化 fake：让 `select sqlite_version()` 成功分支可测 */
+class FakeSqlite {
+  private version: string
+  constructor(_path?: string) {
+    this.version = '3.46.0'
+  }
+  prepare(_sql: string): { get(): unknown } {
+    return { get: () => ({ v: this.version }) }
+  }
+  close(): void { /* noop */ }
+}
+
 /** 构造 mock PluginContext */
 export function createMockContext(pluginId = 'test-plugin'): {
   ctx: PluginContext
@@ -59,6 +71,12 @@ export function createMockContext(pluginId = 'test-plugin'): {
   services: PluginServices
 } {
   const dbs = new Map<string, DatabaseSync>()
+  /** KV 内存实现（storage.get/set/delete/keys 与 shared 共用，可测往返） */
+  const kv = new Map<string, unknown>()
+  /** shared 命名空间（pluginId → key → value） */
+  const sharedNamespaces = new Map<string, Map<string, unknown>>()
+  /** bus responders（'pluginId:method' → handler） */
+  const busResponders = new Map<string, (payload: unknown) => unknown | Promise<unknown>>()
 
   const ipc: MockIpc = {
     handlers: new Map(),
@@ -110,6 +128,7 @@ export function createMockContext(pluginId = 'test-plugin'): {
     },
     host: {
       getDataDir: () => path.join(os.tmpdir(), 'wa-mock-data'),
+      listNativeModules: () => ({ 'better-sqlite3': '^12.9.0' }),
     },
     data: {
       query: vi.fn(async () => []),
@@ -119,6 +138,52 @@ export function createMockContext(pluginId = 'test-plugin'): {
       execute: vi.fn(async () => ({})),
     },
     events,
+    shared: {
+      set: (key, value) => {
+        let ns = sharedNamespaces.get(pluginId)
+        if (!ns) {
+          ns = new Map()
+          sharedNamespaces.set(pluginId, ns)
+        }
+        ns.set(key, value)
+        return Promise.resolve()
+      },
+      get: (key, defaultValue) => {
+        const ns = sharedNamespaces.get(pluginId)
+        return Promise.resolve(ns?.has(key) ? ns.get(key) : defaultValue)
+      },
+      getFrom: (target, key, defaultValue) => {
+        const ns = sharedNamespaces.get(target)
+        return Promise.resolve(ns?.has(key) ? ns.get(key) : defaultValue)
+      },
+      delete: (key) => {
+        sharedNamespaces.get(pluginId)?.delete(key)
+        return Promise.resolve()
+      },
+      keys: () => {
+        const ns = sharedNamespaces.get(pluginId)
+        return Promise.resolve(ns ? Array.from(ns.keys()) : [])
+      },
+      keysAll: () => {
+        const keys: string[] = []
+        for (const [pid, ns] of sharedNamespaces) {
+          for (const key of ns.keys()) keys.push(`${pid}:${key}`)
+        }
+        return Promise.resolve(keys)
+      },
+    },
+    bus: {
+      respond: (method, handler) => {
+        const full = `${pluginId}:${method}`
+        busResponders.set(full, handler as (payload: unknown) => unknown | Promise<unknown>)
+        return () => { if (busResponders.get(full) === handler) busResponders.delete(full) }
+      },
+      call: (targetMethod, payload) => {
+        const handler = busResponders.get(targetMethod)
+        if (!handler) return Promise.reject(new Error(`跨插件方法未注册: ${targetMethod}`))
+        return Promise.resolve().then(() => handler(payload))
+      },
+    },
     notification: {
       notify: vi.fn(() => true),
     },
@@ -140,7 +205,7 @@ export function createMockContext(pluginId = 'test-plugin'): {
       })),
     },
     native: {
-      borrow: vi.fn(() => null),
+      borrow: vi.fn(() => FakeSqlite),
       modulePath: vi.fn(() => ''),
     },
   }
@@ -202,10 +267,11 @@ export function createMockContext(pluginId = 'test-plugin'): {
           close: () => raw.close(),
         }
       },
-      get: vi.fn(async () => undefined),
-      set: vi.fn(async () => {}),
-      delete: vi.fn(async () => {}),
-      keys: vi.fn(async () => []),
+      get: async <T = unknown,>(key: string, defaultValue?: T) =>
+        (kv.has(key) ? kv.get(key) as T : defaultValue),
+      set: async (key: string, value: unknown) => { kv.set(key, value) },
+      delete: async (key: string) => { kv.delete(key) },
+      keys: async () => Array.from(kv.keys()),
     },
     services,
     contributions: {
