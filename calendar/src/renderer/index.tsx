@@ -4,6 +4,7 @@
 import { Button, notification } from 'antd'
 import { setBridge, setHostI18n, cal, hostT } from './store'
 import CalendarPage from './CalendarPage'
+import { CalendarNavIcon } from './CalendarNavIcon'
 import type { PluginRendererEntry, PluginRendererHost } from '@workavatar/plugin-sdk/renderer'
 import type { NotifyPayload } from './types'
 
@@ -58,6 +59,7 @@ let disposeNotify: (() => void) | null = null
 
 const entry: PluginRendererEntry = {
   routes: [{ path: '', component: CalendarPage }],
+  navIcon: CalendarNavIcon,
 
   init(host: PluginRendererHost): void {
     setBridge(host.bridge)

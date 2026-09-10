@@ -1,7 +1,7 @@
 {
   "id": "calendar",
   "name": "Calendar",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "engine": ">=0.2.0",
   "description": "日历与待办管理，支持日程事件、待办任务、重复规则、提醒、Outlook 同步",
   "author": "WorkAvatar",
