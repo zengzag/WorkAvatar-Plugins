@@ -1,0 +1,561 @@
+/* AI 助手集 插件样式：只使用宿主注入的 antd CSS 变量，明暗主题自动继承。
+   设计基调——没有全局顶栏，唯一的常驻 UI 是各栏自己的一行工具条；
+   地址只显示主机名（chrome-like 的长地址条是「像个 demo」的主要来源）。 */
+
+.aiweb-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--ant-color-bg-container);
+}
+
+.aiweb-mode-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.aiweb-mode-opt svg {
+  display: block;
+}
+
+/* ---------- 内容区 ---------- */
+
+.aiweb-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.aiweb-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.aiweb-stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+/* ---------- 标签条 ---------- */
+
+.aiweb-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.aiweb-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.aiweb-tab {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 176px;
+  height: 26px;
+  padding: 0 5px 0 9px;
+  border-radius: 7px;
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.aiweb-tab:hover {
+  background: var(--ant-color-fill-tertiary);
+  color: var(--ant-color-text);
+}
+
+.aiweb-tab.is-active {
+  background: var(--ant-color-fill-secondary);
+  color: var(--ant-color-text);
+  font-weight: 500;
+}
+
+.aiweb-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aiweb-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 9px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.aiweb-tab:hover .aiweb-tab-close,
+.aiweb-tab.is-active .aiweb-tab-close {
+  opacity: 0.55;
+}
+
+.aiweb-tab-close:hover {
+  opacity: 1;
+  background: var(--ant-color-fill-tertiary);
+}
+
+.aiweb-tab-add {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: 2px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ant-color-text-tertiary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.aiweb-tab-add:hover {
+  background: var(--ant-color-fill-tertiary);
+  color: var(--ant-color-text);
+}
+
+/* ---------- 栏位 ---------- */
+
+.aiweb-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+}
+
+.aiweb-pane + .aiweb-pane {
+  border-left: 1px solid var(--ant-color-border-secondary);
+}
+
+/* 标签页模式：所有栏位堆叠在同一区域 */
+.aiweb-pane--stacked {
+  position: absolute;
+  inset: 0;
+  flex: none;
+}
+
+.aiweb-pane--stacked + .aiweb-pane--stacked {
+  border-left: none;
+}
+
+/* 隐藏但保留 guest 存活（切标签不重载）。不可用 display:none ——
+   那会让 guest 内部尺寸归零，重新显示时不再重绘。 */
+.aiweb-pane--hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* ---------- 栏位工具条 ---------- */
+
+.aiweb-bar {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+
+.aiweb-site-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  /* min-width:0 才能让 flex 子项真正收缩（默认 auto 会顶住内容宽度），
+     否则窄栏位下这一行会横向溢出 */
+  min-width: 0;
+  max-width: 148px;
+  height: 24px;
+  padding: 0 6px 0 8px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ant-color-text);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.aiweb-site-btn:hover {
+  background: var(--ant-color-fill-tertiary);
+}
+
+.aiweb-site-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.aiweb-site-caret {
+  font-size: 9px;
+  opacity: 0.5;
+}
+
+.aiweb-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.aiweb-nav {
+  /* 图标组固定宽度，收缩压力全部交给地址文本 */
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.aiweb-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.aiweb-icon-btn:hover:not(:disabled) {
+  background: var(--ant-color-fill-tertiary);
+  color: var(--ant-color-text);
+}
+
+.aiweb-icon-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.aiweb-icon-btn.is-active {
+  background: var(--ant-color-primary-bg);
+  color: var(--ant-color-primary);
+}
+
+.aiweb-address {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 6px;
+  color: var(--ant-color-text-tertiary);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 顶部加载指示：一条 2px 的走马灯，比整块 loading 遮罩轻得多 */
+.aiweb-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  overflow: hidden;
+  background: var(--ant-color-primary-bg);
+}
+
+.aiweb-progress::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 34%;
+  border-radius: 1px;
+  background: var(--ant-color-primary);
+  animation: aiweb-progress-run 1.1s ease-in-out infinite;
+}
+
+@keyframes aiweb-progress-run {
+  0% {
+    left: -34%;
+  }
+  100% {
+    left: 100%;
+  }
+}
+
+/* ---------- 网页容器 ---------- */
+
+.aiweb-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.aiweb-view-host {
+  position: absolute;
+  inset: 0;
+}
+
+/* Electron 内部依赖 display:flex 让 guest 撑满 webview 容器，不可改为其它值 */
+.aiweb-view {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+.aiweb-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px;
+  text-align: center;
+  background: var(--ant-color-bg-container);
+  color: var(--ant-color-text-tertiary);
+  font-size: 12px;
+}
+
+.aiweb-hint-title {
+  color: var(--ant-color-text-secondary);
+  font-size: 13px;
+}
+
+.aiweb-hint-text {
+  max-width: 420px;
+  line-height: 1.7;
+}
+
+/* ---------- 空态 ---------- */
+
+.aiweb-empty {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px;
+  text-align: center;
+}
+
+.aiweb-empty-title {
+  color: var(--ant-color-text-secondary);
+  font-size: 13px;
+}
+
+.aiweb-empty-text {
+  max-width: 320px;
+  color: var(--ant-color-text-tertiary);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.aiweb-primary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  height: 30px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 7px;
+  background: var(--ant-color-primary);
+  color: var(--ant-color-text-light-solid, #fff);
+  font-size: 12px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.aiweb-primary-btn:hover {
+  opacity: 0.86;
+}
+
+/* ---------- 设置面板 ---------- */
+
+.aiweb-settings {
+  flex: 0 0 auto;
+  width: 296px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--ant-color-border-secondary);
+}
+
+.aiweb-settings-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 44px;
+  padding: 0 8px 0 14px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+
+.aiweb-settings-title {
+  color: var(--ant-color-text);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.aiweb-settings-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.aiweb-settings-section {
+  padding: 14px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+
+.aiweb-settings-section:last-child {
+  border-bottom: none;
+}
+
+.aiweb-settings-label {
+  margin-bottom: 10px;
+  color: var(--ant-color-text);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.aiweb-settings-hint {
+  margin: 10px 0 0;
+  color: var(--ant-color-text-tertiary);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.aiweb-settings-note {
+  margin: 12px 0 0;
+  color: var(--ant-color-text-quaternary);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.aiweb-site-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.aiweb-site-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 2px;
+  border-radius: 6px;
+  color: var(--ant-color-text);
+  font-size: 12px;
+  transition: background 0.15s;
+}
+
+.aiweb-site-row:hover {
+  background: var(--ant-color-fill-quaternary);
+}
+
+.aiweb-site-row.is-off {
+  color: var(--ant-color-text-quaternary);
+}
+
+.aiweb-site-row.is-off .aiweb-dot {
+  opacity: 0.28;
+}
+
+.aiweb-site-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aiweb-site-row-ops {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.aiweb-mini-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ant-color-text-tertiary);
+  font-size: 9px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.aiweb-mini-btn:hover:not(:disabled) {
+  background: var(--ant-color-fill-tertiary);
+  color: var(--ant-color-text);
+}
+
+.aiweb-mini-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.aiweb-text-btn {
+  width: 100%;
+  height: 30px;
+  border: 1px solid var(--ant-color-border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.aiweb-text-btn:hover {
+  border-color: var(--ant-color-primary);
+  color: var(--ant-color-primary);
+}
+
+/* ---------- 站点菜单项（Dropdown） ---------- */
+
+.aiweb-menu-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
