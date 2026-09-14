@@ -75,7 +75,8 @@ export interface VoiceUpdateTaskParams {
   transcriptLanguage?: string
   minutes?: string
   minutesType?: string
-  errorMessage?: string
+  /** null 表示显式清空该列（undefined 表示不更新） */
+  errorMessage?: string | null
   sttMode?: string
   sttModel?: string
   notes?: string
@@ -281,6 +282,7 @@ class VoiceService {
     const fields: string[] = []
     const values: any[] = []
     const set = (col: string, val: any) => {
+      // undefined = 不更新；null = 显式清空该列（如重试成功时清除旧错误）
       if (val !== undefined) {
         fields.push(`${col} = ?`)
         values.push(val)
@@ -370,7 +372,7 @@ class VoiceService {
     const isApi = settings.sttMode === 'api'
     const lang = language || (isApi ? settings.apiConfig.language : settings.localConfig.language) || 'zh'
 
-    this.updateTask({ id: taskId, status: 'transcribing', errorMessage: undefined })
+    this.updateTask({ id: taskId, status: 'transcribing', errorMessage: null })
 
     const controller = new AbortController()
     this.transcribeAbortControllers.set(taskId, controller)
@@ -501,7 +503,7 @@ class VoiceService {
 
     const llmConfig = settings.minutesModel
 
-    this.updateTask({ id: taskId, status: 'generating_minutes', errorMessage: undefined })
+    this.updateTask({ id: taskId, status: 'generating_minutes', errorMessage: null })
 
     const controller = new AbortController()
     this.minutesAbortControllers.set(taskId, controller)

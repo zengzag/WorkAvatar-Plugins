@@ -5,8 +5,10 @@
  */
 import path from 'path'
 import fs from 'fs'
+import { Worker } from 'worker_threads'
 import { app } from 'electron'
 import type { PluginContext, PluginLogger } from '@workavatar/plugin-sdk'
+import { STT_WORKER_SOURCE } from './stt-worker'
 
 // ====== 类型（从宿主 shared/ipc-channels 迁入，插件不依赖宿主内部） ======
 
@@ -475,14 +477,14 @@ class LocalSTTService {
     return { samples, sampleRate }
   }
 
-  /** 使用离线识别器进行转录 */
-  private transcribeOffline(
+  /** 使用离线识别器进行转录（主进程内回退路径：分段间让出事件循环，避免持续占死主线程） */
+  private async transcribeOffline(
     rec: any,
     samples: Float32Array,
     sampleRate: number,
     onProgress?: (progress: number, message: string) => void,
     signal?: AbortSignal,
-  ): { text: string; segments: { start: number; end: number; text: string }[] } {
+  ): Promise<{ text: string; segments: { start: number; end: number; text: string }[] }> {
     const maxSegmentSamples = 30 * sampleRate
     const segments: { start: number; end: number; text: string }[] = []
     let fullText = ''
@@ -512,19 +514,21 @@ class LocalSTTService {
       processedSegments++
       const progress = 20 + Math.floor((processedSegments / totalSegments) * 70)
       onProgress?.(progress, `Recognizing segment ${processedSegments}/${totalSegments}...`)
+      // 让出事件循环（与 realtime 队列相同的让出模式），保证主进程能处理 UI/IPC
+      await new Promise<void>((resolve) => setImmediate(resolve))
     }
 
     return { text: fullText, segments }
   }
 
-  /** 使用流式识别器进行转录 */
-  private transcribeOnline(
+  /** 使用流式识别器进行转录（主进程内回退路径：分段间让出事件循环） */
+  private async transcribeOnline(
     rec: any,
     samples: Float32Array,
     sampleRate: number,
     onProgress?: (progress: number, message: string) => void,
     signal?: AbortSignal,
-  ): { text: string; segments: { start: number; end: number; text: string }[] } {
+  ): Promise<{ text: string; segments: { start: number; end: number; text: string }[] }> {
     // 流式识别器以较小块处理音频，使用 endpoint 检测分段
     const chunkSamples = Math.min(30 * sampleRate, samples.length)
     const segments: { start: number; end: number; text: string }[] = []
@@ -564,13 +568,17 @@ class LocalSTTService {
       processedChunks++
       const progress = 20 + Math.floor((processedChunks / totalChunks) * 70)
       onProgress?.(progress, `Recognizing segment ${processedChunks}/${totalChunks}...`)
+      // 让出事件循环（与 realtime 队列相同的让出模式），保证主进程能处理 UI/IPC
+      await new Promise<void>((resolve) => setImmediate(resolve))
     }
 
     return { text: fullText, segments }
   }
 
   /**
-   * 对音频文件进行语音识别
+   * 对音频文件进行语音识别。
+   * 优先在 worker 线程执行（解码循环不阻塞主进程，长录音不再冻结 UI/IPC/调度）；
+   * worker 不可用（模块路径解析失败/启动失败）时回退主进程内转录，分段间让出事件循环。
    */
   async transcribe(
     audioPath: string,
@@ -578,6 +586,16 @@ class LocalSTTService {
     onProgress?: (progress: number, message: string) => void,
     signal?: AbortSignal,
   ): Promise<TranscriptResult> {
+    if (signal?.aborted) throw new Error('Aborted')
+
+    try {
+      return await this.transcribeInWorker(audioPath, config, onProgress, signal)
+    } catch (err: any) {
+      // 用户取消直接上抛，不回退重跑
+      if (err?.message === 'Aborted') throw err
+      this.logger.warn('worker 转录不可用，回退主进程内转录:', err?.message || err)
+    }
+
     const { recognizer: rec, isStreaming } = this.getRecognizer(config)
     onProgress?.(10, 'Loading audio file...')
 
@@ -587,8 +605,8 @@ class LocalSTTService {
     if (signal?.aborted) throw new Error('Aborted')
 
     const result = isStreaming
-      ? this.transcribeOnline(rec, samples, sampleRate, onProgress, signal)
-      : this.transcribeOffline(rec, samples, sampleRate, onProgress, signal)
+      ? await this.transcribeOnline(rec, samples, sampleRate, onProgress, signal)
+      : await this.transcribeOffline(rec, samples, sampleRate, onProgress, signal)
 
     onProgress?.(95, 'Finalizing transcript...')
 
@@ -596,6 +614,118 @@ class LocalSTTService {
       text: result.text,
       segments: result.segments,
     }
+  }
+
+  /**
+   * 解析 sherpa-onnx-node 模块入口文件绝对路径（供 worker 线程 require）。
+   * 打包模式下原生依赖解包到 app.asar.unpacked，worker 内 require 优先走真实文件路径；
+   * 解析不到返回空串。
+   */
+  private resolveSherpaModuleFile(): string {
+    const candidates: string[] = []
+    try {
+      const resolved = this.ctx.services.native?.modulePath?.('sherpa-onnx-node') as string | undefined
+      if (resolved) {
+        if (resolved.includes('app.asar')) {
+          candidates.push(resolved.replace('app.asar', 'app.asar.unpacked'))
+        }
+        candidates.push(resolved)
+      }
+    } catch { /* ignore */ }
+    for (const c of candidates) {
+      try {
+        if (c && fs.existsSync(c)) return c
+      } catch { /* ignore */ }
+    }
+    return ''
+  }
+
+  /** 在 worker 线程中转录音频文件（每次转录独立 spawn，结束即 terminate） */
+  private transcribeInWorker(
+    audioPath: string,
+    _config: VoiceSTTLocalConfig,
+    onProgress?: (progress: number, message: string) => void,
+    signal?: AbortSignal,
+  ): Promise<TranscriptResult> {
+    const moduleFile = this.resolveSherpaModuleFile()
+    if (!moduleFile) {
+      throw new Error('sherpa-onnx-node 模块入口不可解析，worker 转录不可用')
+    }
+
+    const modelDir = this.getBuiltinModelDir()
+    const resolved = resolveModelFiles('zipformer', modelDir)
+    if (!resolved.found) {
+      throw new Error(`内置模型文件缺失: ${resolved.missing.join(', ')}`)
+    }
+
+    return new Promise<TranscriptResult>((resolve, reject) => {
+      let worker: Worker | undefined
+      let settled = false
+
+      const settleResolve = (result: TranscriptResult) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        resolve(result)
+      }
+      const settleReject = (err: Error) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        reject(err)
+      }
+
+      const onAbort = () => {
+        try { worker?.postMessage({ type: 'abort' }) } catch { /* ignore */ }
+      }
+      const cleanup = () => {
+        signal?.removeEventListener('abort', onAbort)
+        // 不在 done/error 时立即 terminate：worker 发送完消息后事件循环排空会自然退出，
+        // 立即强杀会与宿主事件循环产生竞态；延迟 terminate 仅作 hang 住的兜底
+        const t = setTimeout(() => { try { worker?.terminate() } catch { /* ignore */ } }, 3000)
+        ;(t as any)?.unref?.()
+      }
+
+      try {
+        worker = new Worker(STT_WORKER_SOURCE, {
+          eval: true,
+          // 不继承父进程 execArgv（Electron/vitest 的启动旗标对 worker 无意义，继承会导致启动崩溃）
+          execArgv: [],
+          workerData: {
+            moduleFile,
+            audioPath,
+            isStreaming: resolved.isStreaming ?? true,
+            modelFiles: resolved.files,
+          },
+        })
+      } catch (err: any) {
+        reject(err instanceof Error ? err : new Error(String(err)))
+        return
+      }
+
+      worker.on('message', (msg: any) => {
+        if (!msg || typeof msg !== 'object') return
+        if (msg.type === 'progress') {
+          onProgress?.(msg.progress, msg.message)
+        } else if (msg.type === 'done') {
+          settleResolve({
+            text: msg.result?.text || '',
+            segments: Array.isArray(msg.result?.segments) ? msg.result.segments : [],
+          })
+        } else if (msg.type === 'error') {
+          settleReject(new Error(String(msg.message || 'worker 转录失败')))
+        }
+      })
+      worker.on('error', (err: Error) => settleReject(err instanceof Error ? err : new Error(String(err))))
+      worker.on('exit', (code: number) => {
+        if (code !== 0) settleReject(new Error(`STT worker 异常退出，code=${code}`))
+      })
+
+      if (signal) {
+        if (signal.aborted) onAbort()
+        else signal.addEventListener('abort', onAbort)
+      }
+    })
   }
 
   // ==================== 实时识别（边录音边识别） ====================
