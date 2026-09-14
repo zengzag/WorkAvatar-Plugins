@@ -571,6 +571,17 @@ class AutomationService {
     const maxRuns = rule?.count && rule.count > 0 ? rule.count : Infinity
     const maxIterations = 200
     let iter = 0
+    // 快进：start_at 距今超过主循环 200 次推进上限的老任务，逐次推进永远追不上 now，
+    // 预览会恒空（agent 工具误报"无未来执行计划"）——用独立的大步数预算先跳到 now 之后
+    if (cursor < now - maxIterations * 86400 && rule) {
+      let fastForward = 0
+      while (cursor < now && fastForward < 100000) {
+        const next = this.advanceRecurrence(cursor, rule, Math.max(1, rule.interval))
+        if (next === cursor) break
+        cursor = next
+        fastForward++
+      }
+    }
     while (result.length < n && result.length < maxRuns && iter < maxIterations) {
       iter++
       if (cursor > until) break
@@ -668,9 +679,9 @@ class AutomationService {
     let willDisable = false
 
     try {
-      nextRunAt = triggeredBy === 'scheduler'
-        ? this.computeNextRunAfter(task.recurrence_rule, task.start_at, now, now)
-        : task.next_run_at
+      // manual 触发同样重算 next_run_at：沿用旧值时，已过期（任务停用期间错过）的
+      // next_run_at 会让下个调度 tick 立刻重复执行一次
+      nextRunAt = this.computeNextRunAfter(task.recurrence_rule, task.start_at, now, now)
       willDisable = !task.recurrence_rule && (nextRunAt === null || (task.next_run_at !== null && task.next_run_at <= now))
       if (task.recurrence_rule?.count && task.recurrence_rule.count > 0) {
         const successCount = (this.db.prepare(
@@ -719,6 +730,13 @@ class AutomationService {
       if (conv?.id) {
         try { this.deleteConversation(conv.id) } catch { /* ignore */ }
       }
+      // 初始化失败必须恢复任务状态：runTask 已 CAS 置 running，若无路径恢复，
+      // listDueTaskIds 会永久跳过该任务（直到重启时 recoverOrphanRuns 兜底）
+      try {
+        this.db.prepare(
+          `UPDATE automation_tasks SET last_status = 'failed', last_error = ?, updated_at = ? WHERE id = ?`
+        ).run(String(initErr?.message || initErr).slice(0, 500), Math.floor(Date.now() / 1000), task.id)
+      } catch { /* ignore */ }
       throw initErr
     }
 

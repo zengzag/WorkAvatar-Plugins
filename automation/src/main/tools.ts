@@ -338,7 +338,7 @@ ${TIME_HINT}`,
       name: 'automation_task_run_now',
       title: '立即执行任务',
       summary: '立即触发一次自动化任务执行（不影响后续调度）。',
-      description: '立即触发一次自动化任务执行。需要 id。执行会创建新对话并调用对应数字员工执行提示词。执行完成后可通过 automation_run_list 查看结果。注意：手动触发不会跳过正在运行的任务（如果上次自动触发仍在执行则会被跳过）。',
+      description: '立即触发一次自动化任务执行。需要 id。执行会创建新对话并调用对应数字员工执行提示词。执行完成后可通过 automation_run_list 查看结果。注意：若该任务上一次触发仍在执行中，本次触发会被跳过。',
       parameters: {
         type: 'object',
         properties: {
