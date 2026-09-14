@@ -1,14 +1,13 @@
 /**
  * notes 内置插件主进程入口。
- * 由宿主 NotesService 迁移而来（保持全部功能）：
- * - vault 仍为宿主 dataDir/notes（用户自定义数据目录不变，笔记文件零搬迁）
- * - settings 从内核主库 settings 表一次性迁入插件分库（plugin_kv）
+ * - vault 为宿主 dataDir/notes（用户自定义数据目录不变）
+ * - settings 存于插件分库 plugin_kv
  * - IPC 经 ctx.ipc.handle 注册，广播经 ctx.ipc.broadcast 推送到主窗口 + tab 独立窗口
  */
 import { app, shell } from 'electron'
 import fs from 'fs'
 import path from 'path'
-import type { PluginContext, PluginMigrationContext, PluginDatabase } from '@workavatar/plugin-sdk'
+import type { PluginContext, PluginDatabase } from '@workavatar/plugin-sdk'
 
 // ====== 类型（从宿主 shared/channels/notes 迁入，插件不依赖宿主内部） ======
 
@@ -692,50 +691,9 @@ class NotesService {
   }
 }
 
-// ====== 迁移：把内核主库 notes_settings 迁入插件分库 ======
-
-const _migrations = [
-  {
-    version: '1-migrate-settings',
-    description: '迁移笔记设置从内核主库 settings 表到插件分库',
-    async run(mig: PluginMigrationContext) {
-      if (!mig.legacy) return
-      try {
-        const raw = mig.legacy.getSetting(SETTINGS_KEY) as string | undefined
-        if (raw) {
-          const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
-          await mig.storage.set(SETTINGS_KEY, parsed)
-          mig.logger.info('notes settings 已从内核主库迁移到插件分库')
-        }
-      } catch (err: any) {
-        mig.logger.warn('notes settings 迁移失败（忽略，使用默认设置）:', err?.message || err)
-      }
-    },
-  },
-  {
-    version: '2-migrate-settings-legacy',
-    description: '补迁笔记设置（v1 因当时缺 legacyMigration 权限未执行；manifest 已补充权限）',
-    async run(mig: PluginMigrationContext) {
-      if (!mig.legacy) return
-      try {
-        const raw = mig.legacy.getSetting(SETTINGS_KEY) as string | undefined
-        if (raw) {
-          const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
-          await mig.storage.set(SETTINGS_KEY, parsed)
-          mig.logger.info('notes settings 已补迁到插件分库（展开状态/日记/编辑偏好恢复）')
-        }
-      } catch (err: any) {
-        mig.logger.warn('notes settings 补迁失败（忽略，使用默认设置）:', err?.message || err)
-      }
-    },
-  },
-]
-
 // ====== 激活 ======
 
 let service: NotesService | null = null
-
-export const migrations = _migrations
 
 /** 由消息内容生成笔记标题：优先首个标题，其次首行非空文本，最后时间戳兜底 */
 function buildNoteName(content: string): string {

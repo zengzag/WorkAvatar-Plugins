@@ -16,7 +16,6 @@
             "import-external", "save-image", "open-diary",
             "read-external", "write-external"
           ],
-  "permissions": ["legacyMigration"],
   "capabilities": [
     { "domain": "ui", "views": ["message.menu"] }
   ],

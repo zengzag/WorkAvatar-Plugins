@@ -18,7 +18,6 @@
     "realtime-start", "realtime-feed", "realtime-stop", "realtime-cancel",
     "subtitle-show", "subtitle-hide", "subtitle-toggle", "subtitle-get-visible"
   ],
-  "permissions": ["legacyMigration"],
   "capabilities": [
     { "domain": "execute", "kinds": ["llm-stream"] },
     { "domain": "system", "features": ["windows", "native"] }

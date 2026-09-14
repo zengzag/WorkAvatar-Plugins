@@ -14,7 +14,7 @@ async function setup(): Promise<{ mod: PluginMainModule; mock: ReturnType<typeof
   const mock = createMockContext('example-hello-world')
   // 宿主不会在单测里自动跑 migrations，须手动执行（与生产顺序一致：先迁移后 activate）
   for (const m of mod.migrations ?? []) {
-    m.run({ storage: mock.ctx.storage, legacy: null, logger: mock.ctx.services.logger })
+    m.run({ storage: mock.ctx.storage, logger: mock.ctx.services.logger })
   }
   mod.activate(mock.ctx)
   return { mod, mock }

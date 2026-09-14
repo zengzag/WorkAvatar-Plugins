@@ -1,105 +1,15 @@
 /**
  * automation 内置插件主进程入口。
- * 由宿主自动化服务（AutomationService / AutomationSchedulerService / automation.tool / automation.handlers）迁移而来：
- * - 数据从内核主库一次性迁入插件分库（migrations，幂等建表 + 原子事务拷贝）
+ * - 数据完全自包含于插件分库（automation-service 保证建表）
  * - IPC 经 ctx.ipc.handle 注册（通道自动加 plugin:automation: 前缀，短名见 manifest 白名单），写操作后广播 data-changed
- * - agent 工具经 ctx.contributions.registerAgentTools 注入（工具 id 不变，老员工配置无需迁移）
+ * - agent 工具经 ctx.contributions.registerAgentTools 注入（工具 id 不变）
  * - 调度器经 ctx.services.scheduler.every(30s) 驱动
  * - conversation 删除双向同步：订阅 ctx.services.events 的 conversation:deleted 清理关联 run 记录
  */
-import type {
-  PluginContext,
-  PluginMigrationContext,
-  PluginDatabase,
-  PluginLegacyDatabase,
-} from '@workavatar/plugin-sdk'
-import { getAutomationService, ensureAutomationTables, resetAutomationService } from './automation-service'
+import type { PluginContext } from '@workavatar/plugin-sdk'
+import { getAutomationService, resetAutomationService } from './automation-service'
 import AutomationScheduler from './automation-scheduler'
 import { createAutomationTools } from './tools'
-
-// ====== 迁移：内核主库 → 插件分库 ======
-
-function countRows(db: PluginDatabase, table: string): number {
-  return (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n
-}
-
-function copyTasks(db: PluginDatabase, legacy: PluginLegacyDatabase): number {
-  const rows = legacy.all('SELECT * FROM automation_tasks') as any[]
-  const stmt = db.prepare(
-    `INSERT INTO automation_tasks
-      (id, title, description, prompt, employee_id, provider_id, model_id, high_permission,
-       start_at, recurrence_rule, is_enabled, notify_on_complete, retry_count, tags_json,
-       last_run_at, next_run_at, last_status, last_error, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-  for (const r of rows) {
-    stmt.run(
-      r.id, r.title, r.description ?? '', r.prompt,
-      r.employee_id, r.provider_id, r.model_id ?? null, r.high_permission ? 1 : 0,
-      r.start_at, r.recurrence_rule ?? '', r.is_enabled ? 1 : 0,
-      r.notify_on_complete ? 1 : 0, r.retry_count ?? 0, r.tags_json ?? '[]',
-      r.last_run_at ?? null, r.next_run_at ?? null, r.last_status ?? 'idle', r.last_error ?? null,
-      r.created_at, r.updated_at
-    )
-  }
-  return rows.length
-}
-
-function copyRuns(db: PluginDatabase, legacy: PluginLegacyDatabase): number {
-  const rows = legacy.all('SELECT * FROM automation_runs') as any[]
-  const stmt = db.prepare(
-    `INSERT INTO automation_runs
-      (id, task_id, conversation_id, employee_id, provider_id, model_id,
-       status, triggered_by, started_at, finished_at, duration_ms, error_message, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  )
-  for (const r of rows) {
-    stmt.run(
-      r.id, r.task_id, r.conversation_id ?? null, r.employee_id, r.provider_id, r.model_id ?? null,
-      r.status ?? 'running', r.triggered_by ?? 'scheduler', r.started_at,
-      r.finished_at ?? null, r.duration_ms ?? null, r.error_message ?? null, r.created_at
-    )
-  }
-  return rows.length
-}
-
-const _migrations = [
-  {
-    version: '1-migrate-automation-data',
-    description: '迁移自动化数据（任务/执行历史）从内核主库到插件分库',
-    run(mig: PluginMigrationContext) {
-      if (!mig.legacy) return
-      const legacy = mig.legacy
-      const db = mig.storage.openSqlite('index')
-      ensureAutomationTables(db)
-      try {
-        const tables = new Set(legacy.listTables())
-        const src = { tasks: 0, runs: 0 }
-        db.transaction(() => {
-          if (tables.has('automation_tasks')) src.tasks = copyTasks(db, legacy)
-          if (tables.has('automation_runs')) src.runs = copyRuns(db, legacy)
-        })()
-        const dst = {
-          tasks: countRows(db, 'automation_tasks'),
-          runs: countRows(db, 'automation_runs'),
-        }
-        if (src.tasks !== dst.tasks || src.runs !== dst.runs) {
-          mig.logger.warn(
-            `自动化数据迁移行数不一致: tasks ${src.tasks}->${dst.tasks}, runs ${src.runs}->${dst.runs}`
-          )
-        } else {
-          mig.logger.info(
-            `自动化数据迁移完成: tasks=${dst.tasks}, runs=${dst.runs}`
-          )
-        }
-      } catch (err: any) {
-        mig.logger.warn('自动化数据迁移失败（忽略，使用空数据）:', err?.message || err)
-      }
-    },
-  },
-]
-
-export const migrations = _migrations
 
 // ====== 激活 ======
 

@@ -15,7 +15,6 @@
     "export-data", "import-data",
     "outlook-login", "outlook-logout", "outlook-status", "outlook-set-config", "outlook-sync-now"
   ],
-  "permissions": ["legacyMigration"],
   "employees": [
     {
       "key": "calendar-assistant",

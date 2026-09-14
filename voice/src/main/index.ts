@@ -1,12 +1,10 @@
 /**
  * voice 内置插件主进程入口。
- * 由宿主 VoiceService / LocalSTTService / SubtitleWindowService 迁移而来（保持全部功能）：
- * - 迁移：把内核 KMS 向量库的 kms_voice_tasks 数据与 voice_settings 设置迁入插件分库
+ * - 数据完全自包含于插件分库（voice-service 保证建表）与宿主 dataDir/voice
  * - IPC 经 ctx.ipc.handle 注册（插件桥路由 plugin:voice:<channel>），广播经 ctx.ipc.broadcast 推送
- * - 语音任务/录音文件数据完全自包含于插件分库与宿主 dataDir/voice
  */
 import { desktopCapturer, dialog } from 'electron'
-import type { PluginContext, PluginMigrationContext } from '@workavatar/plugin-sdk'
+import type { PluginContext } from '@workavatar/plugin-sdk'
 import VoiceService from './voice-service'
 import LocalSTTService from './local-stt'
 import SubtitleWindowService from './subtitle-window'
@@ -17,131 +15,11 @@ import type {
   VoiceSettings,
 } from './voice-service'
 
-// ====== 迁移：把内核主库的语音数据迁入插件分库 ======
-
-const VOICE_TASKS_DDL = `
-  CREATE TABLE IF NOT EXISTS kms_voice_tasks (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL DEFAULT '',
-    description TEXT DEFAULT '',
-    status TEXT NOT NULL DEFAULT 'created',
-    audio_path TEXT,
-    audio_format TEXT DEFAULT 'webm',
-    duration INTEGER DEFAULT 0,
-    audio_size INTEGER DEFAULT 0,
-    audio_channels INTEGER DEFAULT 0,
-    sample_rate INTEGER DEFAULT 0,
-    transcript TEXT DEFAULT '',
-    transcript_segments_json TEXT DEFAULT '[]',
-    transcript_language TEXT DEFAULT '',
-    minutes TEXT DEFAULT '',
-    minutes_type TEXT DEFAULT '',
-    error_message TEXT,
-    stt_mode TEXT DEFAULT '',
-    stt_model TEXT DEFAULT '',
-    created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
-    recorded_at INTEGER,
-    secondary_audio_path TEXT,
-    notes TEXT DEFAULT ''
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_kms_voice_tasks_status ON kms_voice_tasks(status);
-  CREATE INDEX IF NOT EXISTS idx_kms_voice_tasks_created ON kms_voice_tasks(created_at DESC);
-`
-
-const VOICE_TASK_COLUMNS = [
-  'id', 'title', 'description', 'status', 'audio_path', 'audio_format', 'duration',
-  'audio_size', 'audio_channels', 'sample_rate', 'transcript', 'transcript_segments_json',
-  'transcript_language', 'minutes', 'minutes_type', 'error_message', 'stt_mode', 'stt_model',
-  'created_at', 'updated_at', 'recorded_at', 'secondary_audio_path', 'notes',
-] as const
-
-/** 迁移时若源表缺失某列（未走宿主 ALTER 迁移的旧库），回退到建表默认值 */
-const VOICE_TASK_COLUMN_DEFAULTS: Record<string, unknown> = {
-  title: '', description: '', status: 'created', audio_format: 'webm',
-  duration: 0, audio_size: 0, audio_channels: 0, sample_rate: 0,
-  transcript: '', transcript_segments_json: '[]', transcript_language: '',
-  minutes: '', minutes_type: '', stt_mode: '', stt_model: '',
-  notes: '',
-}
-
-const _migrations = [
-  {
-    version: '1-migrate-voice-data',
-    description: '迁移语音任务与设置从内核主库到插件分库',
-    run(mig: PluginMigrationContext) {
-      const db = mig.storage.openSqlite('index')
-      db.exec('CREATE TABLE IF NOT EXISTS plugin_kv (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
-      db.exec(VOICE_TASKS_DDL)
-      if (!mig.legacy) return
-
-      const migrate = db.transaction(() => {
-        // 拷贝 kms_voice_tasks 全部行（表位于内核 KMS 向量库，经 legacy.kms 只读访问；库不存在则跳过）
-        try {
-          const kms = mig.legacy.kms
-          if (!kms) {
-            mig.logger.info('KMS 向量库不可读，跳过语音任务迁移')
-          } else {
-            const tables = kms.listTables()
-            if (tables.includes('kms_voice_tasks')) {
-              const rows = kms.all('SELECT * FROM kms_voice_tasks') as Record<string, unknown>[]
-              if (rows.length > 0) {
-                const cols = VOICE_TASK_COLUMNS
-                const placeholders = cols.map(() => '?').join(', ')
-                const insert = db.prepare(
-                  `INSERT OR IGNORE INTO kms_voice_tasks (${cols.join(', ')}) VALUES (${placeholders})`
-                )
-                for (const r of rows) {
-                  const values = cols.map(c => {
-                    const v = r[c]
-                    if (v !== undefined && v !== null) return v
-                    return c in VOICE_TASK_COLUMN_DEFAULTS ? VOICE_TASK_COLUMN_DEFAULTS[c] : null
-                  })
-                  insert.run(...values)
-                }
-              }
-              mig.logger.info(`语音任务已迁移到插件分库: ${rows.length} 条`)
-            } else {
-              mig.logger.info('KMS 向量库无 kms_voice_tasks 表，跳过任务迁移')
-            }
-          }
-        } catch (err: any) {
-          mig.logger.warn('语音任务迁移失败（忽略，使用空数据）:', err?.message || err)
-        }
-
-        // 拷贝 voice_settings 设置到 plugin_kv
-        try {
-          const raw = mig.legacy.getSetting('voice_settings') as string | undefined
-          if (raw) {
-            const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
-            db.prepare(
-              'INSERT INTO plugin_kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
-            ).run('voice_settings', JSON.stringify(parsed))
-            mig.logger.info('voice_settings 已从内核主库迁移到插件分库')
-          }
-        } catch (err: any) {
-          mig.logger.warn('voice_settings 迁移失败（忽略，使用默认设置）:', err?.message || err)
-        }
-      })
-      migrate()
-
-      // 行数校验
-      try {
-        const count = (db.prepare('SELECT COUNT(*) AS n FROM kms_voice_tasks').get() as { n: number }).n
-        mig.logger.info(`插件分库 kms_voice_tasks 校验: ${count} 行`)
-      } catch { /* ignore */ }
-    },
-  },
-]
-
 // ====== 激活 ======
 
 let voiceService: VoiceService | null = null
 let localSTT: LocalSTTService | null = null
 let subtitleWindow: SubtitleWindowService | null = null
-
-export const migrations = _migrations
 
 export function activate(ctx: PluginContext): void {
   localSTT = LocalSTTService.getInstance(ctx)

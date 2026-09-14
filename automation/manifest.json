@@ -13,7 +13,6 @@
     "run-now", "preview-runs",
     "list-runs", "delete-run", "clear-runs"
   ],
-  "permissions": ["legacyMigration"],
   "capabilities": [
     { "domain": "data", "entities": ["conversations"], "access": "write" },
     { "domain": "execute", "kinds": ["agent-chat"] },
