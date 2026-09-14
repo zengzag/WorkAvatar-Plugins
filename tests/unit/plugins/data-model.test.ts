@@ -213,7 +213,9 @@ describe('data-model 插件 IPC handler', () => {
     await create({ name: 'A' })
     const fs = await import('node:fs')
     const path = await import('node:path')
-    const tmp = path.join(process.cwd(), 'tmp_import_model_test.json')
+    // P0 修复后 agent 文件工具的路径必须位于任务工作区内（防任意路径读写）
+    const tmp = path.join(mock.ctx.paths.data, 'tasks', 'tmp_import_model_test.json')
+    fs.mkdirSync(path.dirname(tmp), { recursive: true })
     // LLM 生成的工程文件常省略 id（仅 name/fields），缺失 id 会导致 React Flow
     // 节点无法定位（"Handle: No node id found"）与关系引用失效
     fs.writeFileSync(tmp, JSON.stringify({

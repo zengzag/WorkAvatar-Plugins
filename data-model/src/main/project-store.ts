@@ -104,20 +104,25 @@ class ProjectStore {
     return this.db
   }
 
+  /** 解析记录的 model JSON：单条损坏记录（写入中断/磁盘问题）跳过并告警，不拖垮整个列表 */
+  private parseRecord(r: any): ProjectRecord | null {
+    try {
+      return { id: r.id, name: r.name, model: JSON.parse(r.model) as DataModel, updatedAt: r.updated_at }
+    } catch (err: any) {
+      console.warn('[data-model] 损坏的项目记录已跳过:', r?.id, err?.message || err)
+      return null
+    }
+  }
+
   list(): ProjectRecord[] {
     const rows = this.requireDb().prepare('SELECT id, name, model, updated_at FROM dm_projects ORDER BY updated_at DESC').all() as any[]
-    return rows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      model: JSON.parse(r.model) as DataModel,
-      updatedAt: r.updated_at
-    }))
+    return rows.map((r) => this.parseRecord(r)).filter((r): r is ProjectRecord => r !== null)
   }
 
   get(id: string): ProjectRecord | null {
     const row = this.requireDb().prepare('SELECT id, name, model, updated_at FROM dm_projects WHERE id = ?').get(id) as any
     if (!row) return null
-    return { id: row.id, name: row.name, model: JSON.parse(row.model) as DataModel, updatedAt: row.updated_at }
+    return this.parseRecord(row)
   }
 
   save(model: DataModel): void {

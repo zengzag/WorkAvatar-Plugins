@@ -629,8 +629,31 @@ function mergeModel(model: DataModel, incoming: DataModel): ToolExecResult {
       return { ...rel, id: createId('rel'), sourceTableId: sTable.id, sourceFieldId: sf.id, targetTableId: tTable.id, targetFieldId: tf.id }
     })
     .filter((r): r is NonNullable<typeof r> => r !== null)
-  const merged: DataModel = { ...model, tables: allTables, relationships: [...model.relationships, ...newRels], updatedAt: Date.now() }
-  return { model: merged, result: ok({ mode: 'merge', addedTables: newTables.length, addedRelationships: newRels.length, totalTables: merged.tables.length }, `并入完成：新增 ${newTables.length} 表 / ${newRels.length} 关系（共 ${merged.tables.length} 表）`) }
+  // enums / indexes 按 name 去重并入，不再静默丢弃
+  const existingEnumNames = new Set((model.enums ?? []).map((e) => e.name.toLowerCase()))
+  const existingIndexNames = new Set((model.indexes ?? []).map((ix) => ix.name.toLowerCase()))
+  const newEnums = (normalized.enums ?? []).filter((e) => !existingEnumNames.has(e.name.toLowerCase()))
+  const newIndexes = (normalized.indexes ?? []).filter((ix) => !existingIndexNames.has(ix.name.toLowerCase()))
+  const merged: DataModel = {
+    ...model,
+    tables: allTables,
+    relationships: [...model.relationships, ...newRels],
+    ...(newEnums.length > 0 || newIndexes.length > 0
+      ? {
+          enums: [...(model.enums ?? []), ...newEnums],
+          indexes: [...(model.indexes ?? []), ...newIndexes],
+        }
+      : {}),
+    updatedAt: Date.now(),
+  }
+  const parts = [`新增 ${newTables.length} 表 / ${newRels.length} 关系（共 ${merged.tables.length} 表）`]
+  if (newEnums.length > 0) parts.push(`${newEnums.length} 枚举`)
+  if (newIndexes.length > 0) parts.push(`${newIndexes.length} 索引`)
+  return {
+    model: merged,
+    result: ok({ mode: 'merge', addedTables: newTables.length, addedRelationships: newRels.length, totalTables: merged.tables.length },
+      `并入完成：${parts.join(' / ')}`)
+  }
 }
 
 // ============ 布局剥离（减小体积） ============

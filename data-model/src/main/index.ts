@@ -9,7 +9,8 @@ import { createDataModelAgentTools } from './agent-tools'
 import { importDbml, exportDbml } from './dbml-service'
 
 let ctxRef: PluginContext | null = null
-let currentAbort: AbortController | null = null
+/** 进行中对话的 AbortController（按 conversationId），避免并行会话互相误取消 */
+const activeAborts = new Map<string, Set<AbortController>>()
 let unsubscribeEvents: Array<() => void> = []
 
 // 数据模型对话专用系统提示词：指导 agent 使用分层协议编辑当前模型
@@ -236,7 +237,12 @@ function registerIpc(ctx: PluginContext): void {
     if (!resolvedProviderId) return { error: 'chat.error.noProvider' }
 
     const controller = new AbortController()
-    currentAbort = controller
+    // convId 在下方生成；新会话时先用 conversationId 或临时键登记，结束后移除。
+    // 同会话并发发起用 Set 存多个 controller，避免互相覆盖
+    const abortKey = conversationId || `pending_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`
+    let abortSet = activeAborts.get(abortKey)
+    if (!abortSet) { abortSet = new Set(); activeAborts.set(abortKey, abortSet) }
+    abortSet.add(controller)
     const mergedSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
     const lastMsg = messages[messages.length - 1]
     const isNewConv = !conversationId
@@ -325,7 +331,9 @@ function registerIpc(ctx: PluginContext): void {
       }
       return { conversationId: lastConvId, workspacePath } as { conversationId: string; workspacePath: string | null }
     } finally {
-      if (currentAbort === controller) currentAbort = null
+      const abortSet = activeAborts.get(abortKey)
+      abortSet?.delete(controller)
+      if (abortSet && abortSet.size === 0) activeAborts.delete(abortKey)
     }
   })
 
@@ -388,8 +396,14 @@ function registerIpc(ctx: PluginContext): void {
     return { ok: true }
   })
 
-  ctx.ipc.handle('chat-cancel', () => {
-    currentAbort?.abort()
+  ctx.ipc.handle('chat-cancel', (payload: any) => {
+    // 按 conversationId 精确取消；未指定时取消全部进行中对话（兼容旧调用）
+    const targets = payload?.conversationId
+      ? [activeAborts.get(payload.conversationId)].filter(Boolean)
+      : [...activeAborts.values()]
+    for (const set of targets) {
+      for (const c of set!) c.abort()
+    }
     return { ok: true }
   })
 
@@ -426,6 +440,8 @@ export function activate(ctx: PluginContext): void {
   ctxRef = ctx
   projectStore.init(ctx)
   modelSession.init(ctx)
+  // 文件读写安全边界：agent 工具的路径校验需要任务根目录
+  modelSession.setTaskRootResolver(taskRootDir)
 
   // 加载最近项目，无则创建空白项目
   const projects = projectStore.list()
@@ -453,8 +469,10 @@ export function activate(ctx: PluginContext): void {
 }
 
 export function deactivate(): void {
-  currentAbort?.abort()
-  currentAbort = null
+  for (const set of activeAborts.values()) {
+    for (const c of set) c.abort()
+  }
+  activeAborts.clear()
   unsubscribeEvents.forEach((unsub) => { try { unsub() } catch { /* ignore */ } })
   unsubscribeEvents = []
   ctxRef = null
