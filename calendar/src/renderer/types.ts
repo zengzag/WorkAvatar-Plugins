@@ -71,6 +71,11 @@ export interface CalendarEvent {
 export interface CalendarEventInstance extends CalendarEvent {
   instance_start_at: number
   instance_end_at: number
+  /**
+   * 实例锚点（RECURRENCE-ID）：未被 override 过时等于 instance_start_at，
+   * 被 override（如拖动单实例）后为原始发生时间，实例级操作（删除/再拖动）以此为准
+   */
+  instance_anchor_at: number
   is_recurring: boolean
 }
 
@@ -203,6 +208,26 @@ export interface UpdateEventInput {
   color?: EventColor
   recurrence_rule?: RecurrenceRule | null
   reminders?: number[]
+}
+
+/** 实例级更新输入（RFC 5545 RECURRENCE-ID 例外）：拖动/缩放重复日程的单个实例 */
+export interface UpdateEventInstanceParams {
+  id: string
+  /** 实例锚点（原始 RECURRENCE-ID，Unix 秒） */
+  anchor_at: number
+  start_at: number
+  end_at: number
+}
+
+/** 拖动/缩放日程输入：重复日程实例需携带锚点以走实例 override，非重复事件直接整条更新 */
+export interface MoveEventInput {
+  id: string
+  start_at: number
+  end_at: number
+  /** 是否为重复日程实例 */
+  is_recurring?: boolean
+  /** 实例锚点（原始 RECURRENCE-ID，Unix 秒）；仅重复实例需要 */
+  anchor_at?: number
 }
 
 export interface CreateTodoInput {

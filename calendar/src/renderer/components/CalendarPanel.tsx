@@ -3,7 +3,7 @@ import { Calendar, Spin, Tooltip, theme } from 'antd'
 import type { Dayjs } from 'dayjs'
 import dayjs from 'dayjs'
 import { useTranslation } from 'react-i18next'
-import type { CalendarEventInstance, CalendarTodoInstance, EventColor } from '../types'
+import type { CalendarEventInstance, CalendarTodoInstance, EventColor, MoveEventInput } from '../types'
 import { useAppearance } from '../store'
 import { useDragInteraction, secToY, RESIZE_HANDLE_HEIGHT } from '../useDragInteraction'
 import type { DragState } from '../useDragInteraction'
@@ -43,8 +43,8 @@ interface CalendarPanelProps {
   loading: boolean
   onCreateEvent: (startAt: number, endAt?: number) => void
   onEditEvent: (event: CalendarEventInstance) => void
-  onMoveEvent: (input: { id: string; start_at: number; end_at: number }) => void
-  onResizeEvent: (input: { id: string; start_at: number; end_at: number }) => void
+  onMoveEvent: (input: MoveEventInput) => void
+  onResizeEvent: (input: MoveEventInput) => void
   onEditTodo?: (todo: CalendarTodoInstance) => void
 }
 

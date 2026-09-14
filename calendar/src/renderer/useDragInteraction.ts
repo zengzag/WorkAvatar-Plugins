@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
-import type { CalendarEventInstance } from './types'
+import type { CalendarEventInstance, MoveEventInput } from './types'
 
 const MS = 1000
 export const HOUR_HEIGHT = 56
@@ -45,8 +45,8 @@ export interface UseDragInteractionOptions {
   dayColumns: number[]
   scrollContainerRef: React.RefObject<HTMLDivElement | null>
   onCreateEvent: (startAt: number, endAt?: number) => void
-  onMoveEvent: (input: { id: string; start_at: number; end_at: number }) => void
-  onResizeEvent: (input: { id: string; start_at: number; end_at: number }) => void
+  onMoveEvent: (input: MoveEventInput) => void
+  onResizeEvent: (input: MoveEventInput) => void
   onEditEvent: (event: CalendarEventInstance) => void
 }
 
@@ -229,11 +229,24 @@ export function useDragInteraction(options: UseDragInteractionOptions): UseDragI
       }
     } else if (pending.mode === 'move') {
       if (ds.type === 'moving') {
-        onMoveEvent({ id: ds.eventId, start_at: ds.newStartSec, end_at: ds.newEndSec })
+        // 重复日程实例携带锚点（RECURRENCE-ID），由上层写实例 override 而非平移整个系列
+        onMoveEvent({
+          id: ds.eventId,
+          start_at: ds.newStartSec,
+          end_at: ds.newEndSec,
+          is_recurring: pending.event.is_recurring,
+          anchor_at: pending.event.instance_anchor_at ?? pending.event.instance_start_at,
+        })
       }
     } else if (pending.mode === 'resize') {
       if (ds.type === 'resizing') {
-        onResizeEvent({ id: ds.eventId, start_at: ds.newStartSec, end_at: ds.newEndSec })
+        onResizeEvent({
+          id: ds.eventId,
+          start_at: ds.newStartSec,
+          end_at: ds.newEndSec,
+          is_recurring: pending.event.is_recurring,
+          anchor_at: pending.event.instance_anchor_at ?? pending.event.instance_start_at,
+        })
       }
     }
     cleanup()

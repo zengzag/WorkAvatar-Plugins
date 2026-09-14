@@ -251,6 +251,20 @@ const EventFormModal: React.FC<EventFormModalProps> = ({
           />
         </Form.Item>
 
+        {/* 重复日程编辑提示：时间仅作用于当前实例，其余字段作用于系列 */}
+        {isEdit && event?.recurrence_rule && event?.is_recurring && (
+          <div style={{
+            fontSize: 12,
+            color: token.colorTextTertiary,
+            background: token.colorFillQuaternary,
+            borderRadius: 6,
+            padding: '4px 8px',
+            marginBottom: 8,
+          }}>
+            {t('calendar.recurringEditHint')}
+          </div>
+        )}
+
         {/* 时间：开始日期 + 开始时间 → 结束日期 + 结束时间，一行排列 */}
         <Row gutter={8} align="middle" style={{ marginBottom: 8 }}>
           <Col flex="1 1 100px">

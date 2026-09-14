@@ -42,6 +42,8 @@ class OutlookSyncService {
   private schedulerJob: string | null = null
   private syncing = false
   private lastDataVersion = ''
+  /** 连续同步失败计数：≥5 次后停止自动重试（防 Graph API 重试风暴） */
+  private syncFailCount = 0
   private calendarId: string | null = null
   private todoListId: string | null = null
 
@@ -170,6 +172,7 @@ class OutlookSyncService {
     this.syncing = true
     this.broadcast()
     const result: OutlookSyncResult = { created: 0, updated: 0, deleted: 0, failed: 0, errors: [], synced_at: Math.floor(Date.now() / 1000) }
+    let syncOk = false
     try {
       const token = await auth.getAccessToken()
       if (!token) throw new Error('登录已过期，请重新登录 Outlook 账号')
@@ -182,6 +185,7 @@ class OutlookSyncService {
         this.todoListId = await this.ensureTodoList(token)
         await this.syncTodos(token, result)
       }
+      syncOk = true
       this.saveState({ last_result: result, last_error: result.failed > 0 ? `${result.failed} 条同步失败` : null })
       this.ctx.services.logger.info(`Sync done: +${result.created} ~${result.updated} -${result.deleted} !${result.failed}`)
     } catch (err: any) {
@@ -189,7 +193,19 @@ class OutlookSyncService {
       this.saveState({ ...this.loadState(), last_error: err?.message || '同步失败' })
     } finally {
       this.syncing = false
-      this.lastDataVersion = this.computeDataVersion()
+      // 失败（如 token 瞬时失效）时不更新版本指纹：数据未变时下个 tick 会重试同步，
+      // 否则 runCheck 已提前记录版本、失败后永不自动重试。
+      // 连续失败 ≥5 次后停止自动重试（避免对 Graph API 重试风暴），手动"立即同步"或
+      // 数据再次变化时恢复
+      if (syncOk) {
+        this.syncFailCount = 0
+        this.lastDataVersion = this.computeDataVersion()
+      } else {
+        this.syncFailCount++
+        if (this.syncFailCount < 5) {
+          this.lastDataVersion = ''
+        }
+      }
       this.broadcast()
     }
   }

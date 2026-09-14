@@ -46,17 +46,23 @@ class CalendarScheduler {
         const payload = reminder.payload || {}
         const title = payload.title || '日历提醒'
         const body = payload.body || ''
-        // 用户禁用系统通知时，仍走 IPC 广播（前端弹 antd notification）
-        if (!settings.enable_system_notification) {
-          this.ctx.ipc.broadcast('notify', { title, body, clickTarget: payload.clickTarget, clickId: payload.clickId, source: 'calendar' })
-        } else {
-          this.ctx.services.notification!.notify({
-            title,
-            body,
-            clickTarget: payload.clickTarget,
-            clickId: payload.clickId,
-            source: 'calendar',
-          })
+        // 通知发送失败不得中断循环：否则 markReminderFired 不执行，
+        // 该提醒及后续到期提醒会留在队列每 30s 重放
+        try {
+          // 用户禁用系统通知时，仍走 IPC 广播（前端弹 antd notification）
+          if (!settings.enable_system_notification) {
+            this.ctx.ipc.broadcast('notify', { title, body, clickTarget: payload.clickTarget, clickId: payload.clickId, source: 'calendar' })
+          } else {
+            this.ctx.services.notification!.notify({
+              title,
+              body,
+              clickTarget: payload.clickTarget,
+              clickId: payload.clickId,
+              source: 'calendar',
+            })
+          }
+        } catch (err: any) {
+          this.ctx.services.logger.warn(`notify failed for reminder ${reminder.id}:`, err?.message || err)
         }
         calendar.markReminderFired(reminder.id)
         // 提醒触发后检查重复事件/TODO 的未来提醒是否耗尽，滚动再生避免 90 天后静默消失

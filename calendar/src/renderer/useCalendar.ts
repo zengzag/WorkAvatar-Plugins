@@ -9,6 +9,7 @@ import type {
   CalendarSettings,
   CreateEventInput,
   UpdateEventInput,
+  UpdateEventInstanceParams,
   CreateTodoInput,
   UpdateTodoInput,
   DeleteEventInstanceParams,
@@ -167,6 +168,12 @@ export function useCalendar() {
     return result
   }, [refreshEvents])
 
+  const updateEventInstance = useCallback(async (params: UpdateEventInstanceParams) => {
+    const result = await cal.updateEventInstance(params)
+    if (result && !result.error) await refreshEvents()
+    return result
+  }, [refreshEvents])
+
   const deleteEvent = useCallback(async (id: string) => {
     const result = await cal.deleteEvent(id)
     if (result && !result.error) await refreshEvents()
@@ -241,7 +248,7 @@ export function useCalendar() {
     loadingEvents, loadingTodos, loadingTodoInstances,
     setView, setCurrentDate, setFilters,
     refreshAll, refreshEvents, refreshTodos, refreshTodoInstances, refreshStats, refreshSettings,
-    createEvent, updateEvent, deleteEvent, deleteEventInstance,
+    createEvent, updateEvent, updateEventInstance, deleteEvent, deleteEventInstance,
     createTodo, updateTodo, deleteTodo, deleteTodoInstance, completeTodo, saveSettings,
   }
 }

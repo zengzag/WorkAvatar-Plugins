@@ -204,6 +204,15 @@ function registerIpc(ctx: PluginContext): void {
     return event
   })
 
+  ctx.ipc.handle('update-event-instance', (input: any) => {
+    if (!input?.id || typeof input.anchor_at !== 'number' || typeof input.start_at !== 'number' || typeof input.end_at !== 'number') {
+      return { error: 'id / anchor_at / start_at / end_at 必填' }
+    }
+    const event = calendar.updateEventInstance(input)
+    if (event) broadcastDataChanged(ctx, 'event')
+    return event
+  })
+
   ctx.ipc.handle('delete-event', (params: any) => {
     if (!params?.id) return { error: 'id 必填' }
     const ok = calendar.deleteEvent(params.id)

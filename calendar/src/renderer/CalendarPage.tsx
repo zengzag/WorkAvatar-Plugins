@@ -14,7 +14,7 @@ import TodoPanel from './components/TodoPanel'
 import EventFormModal, { type EventFormMode } from './components/EventFormModal'
 import TodoFormModal, { type TodoFormMode } from './components/TodoFormModal'
 import CalendarSettingsDrawer from './components/CalendarSettingsDrawer'
-import type { DeleteInstanceMode, CalendarEventInstance, CalendarTodo, CalendarTodoInstance, CreateEventInput, UpdateEventInput, CreateTodoInput, UpdateTodoInput } from './types'
+import type { DeleteInstanceMode, CalendarEventInstance, CalendarTodo, CalendarTodoInstance, CreateEventInput, UpdateEventInput, UpdateEventInstanceParams, CreateTodoInput, UpdateTodoInput, MoveEventInput } from './types'
 
 const DEFAULT_CLICK_DURATION_SEC = 30 * 60
 
@@ -127,20 +127,64 @@ const CalendarPage: React.FC = () => {
     setEventModalOpen(true)
   }, [])
 
+  /** 对比重复规则是否被重新定义（overrides/rdates 不参与对比，由主进程保留；键排序保证序列化稳定） */
+  const ruleRedefined = (a?: UpdateEventInput['recurrence_rule'], b?: UpdateEventInput['recurrence_rule']): boolean => {
+    if (!a && !b) return false
+    if (!a || !b) return true
+    const strip = (r: NonNullable<UpdateEventInput['recurrence_rule']>) => {
+      const { overrides: _o, rdates: _r, ...rest } = r
+      return JSON.stringify(rest, Object.keys(rest).sort())
+    }
+    return strip(a) !== strip(b)
+  }
+
   const handleEventSubmit = useCallback(async (input: CreateEventInput | UpdateEventInput) => {
     if (eventModalMode === 'create') {
       return await cal.createEvent(input as CreateEventInput)
     }
-    return await cal.updateEvent(input as UpdateEventInput)
-  }, [cal, eventModalMode])
+    const payload = input as UpdateEventInput
+    const editing = editingEvent
+    // 非重复事件：整条更新
+    if (!editing?.recurrence_rule || !editing.is_recurring) {
+      return await cal.updateEvent(payload)
+    }
+    // 重复事件：规则被重新定义 → 整条更新（重定义系列语义）
+    if (ruleRedefined(payload.recurrence_rule, editing.recurrence_rule)) {
+      return await cal.updateEvent(payload)
+    }
+    // 规则未变：标题等字段作用于系列；时间变化只写当前实例的 override，
+    // 避免把实例时间写到系列 start_at 上平移整个系列
+    const anchor = editing.instance_anchor_at ?? editing.instance_start_at
+    const startChanged = payload.start_at != null && payload.start_at !== editing.instance_start_at
+    const endChanged = payload.end_at != null && payload.end_at !== editing.instance_end_at
+    if (startChanged || endChanged) {
+      const instanceUpdate: UpdateEventInstanceParams = {
+        id: editing.id,
+        anchor_at: anchor,
+        start_at: payload.start_at ?? editing.instance_start_at,
+        end_at: payload.end_at ?? editing.instance_end_at,
+      }
+      const r = await cal.updateEventInstance(instanceUpdate)
+      if (r && 'error' in r) return r
+    }
+    const { start_at: _s, end_at: _e, ...seriesPayload } = payload
+    return await cal.updateEvent(seriesPayload)
+  }, [cal, eventModalMode, editingEvent])
 
-  const handleMoveEvent = useCallback(async (input: { id: string; start_at: number; end_at: number }) => {
+  const handleMoveEvent = useCallback(async (input: MoveEventInput) => {
+    // 重复日程实例：写实例 override（RECURRENCE-ID 例外），只移动这一次
+    if (input.is_recurring && typeof input.anchor_at === 'number') {
+      return await cal.updateEventInstance({
+        id: input.id,
+        anchor_at: input.anchor_at,
+        start_at: input.start_at,
+        end_at: input.end_at,
+      })
+    }
     return await cal.updateEvent(input as UpdateEventInput)
   }, [cal])
 
-  const handleResizeEvent = useCallback(async (input: { id: string; start_at: number; end_at: number }) => {
-    return await cal.updateEvent(input as UpdateEventInput)
-  }, [cal])
+  const handleResizeEvent = handleMoveEvent
 
   const showRecurringDeleteModal = useCallback((args: {
     title: string
@@ -165,7 +209,8 @@ const CalendarPage: React.FC = () => {
     if (!ev.recurrence_rule) {
       return await cal.deleteEvent(ev.id)
     }
-    const anchorAt = ev.instance_start_at
+    // 实例可能已被 override 过（拖动过），锚点取原始 RECURRENCE-ID 而非当前展示时间
+    const anchorAt = ev.instance_anchor_at ?? ev.instance_start_at
     showRecurringDeleteModal({
       title: ev.title,
       onMode: async (mode) => {

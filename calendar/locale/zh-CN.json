@@ -34,6 +34,7 @@
     "recurringDeleteThis": "仅本次（跳过这一次，其他正常保留）",
     "recurringDeleteFuture": "本次及以后（从这一次开始全部删除）",
     "recurringDeleteAll": "全部（删除整个循环）",
+    "recurringEditHint": "重复日程：修改时间仅对当前这一次生效；主题、描述、颜色等其他字段应用于整个系列。",
     "newTodo": "新建待办",
     "editTodo": "编辑待办",
     "editDetail": "编辑详情",

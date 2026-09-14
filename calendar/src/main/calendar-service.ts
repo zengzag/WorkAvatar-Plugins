@@ -197,6 +197,11 @@ export interface CalendarEventInstance extends CalendarEvent {
   /** 实例的实际开始时间（可能与 start_at 不同，重复展开时变化） */
   instance_start_at: number
   instance_end_at: number
+  /**
+   * 实例锚点（RECURRENCE-ID）：未被 override 过时等于 instance_start_at，
+   * 被 override（如拖动单实例）后为原始发生时间，实例级操作（删除/再拖动）以此为准
+   */
+  instance_anchor_at: number
   /** 是否为重复日程产生的实例 */
   is_recurring: boolean
 }
@@ -282,6 +287,15 @@ export interface UpdateEventInput {
   color?: EventColor
   recurrence_rule?: RecurrenceRule | null
   reminders?: number[]
+}
+
+/** 实例级更新（RFC 5545 RECURRENCE-ID 例外）：拖动/缩放重复日程的单个实例 */
+export interface UpdateEventInstanceInput {
+  id: string
+  /** 实例锚点（原始 RECURRENCE-ID，展开实例的 instance_anchor_at），Unix 秒 */
+  anchor_at: number
+  start_at: number
+  end_at: number
 }
 
 export interface CreateTodoInput {
@@ -410,7 +424,7 @@ class CalendarService {
     for (const row of rows) {
       const event = this.rowToEvent(row)
       if (!event.recurrence_rule) {
-        instances.push({ ...event, instance_start_at: event.start_at, instance_end_at: event.end_at, is_recurring: false })
+        instances.push({ ...event, instance_start_at: event.start_at, instance_end_at: event.end_at, instance_anchor_at: event.start_at, is_recurring: false })
       } else {
         const expanded = this.expandEventInstances(event, params.start_at, params.end_at)
         instances.push(...expanded)
@@ -459,7 +473,16 @@ class CalendarService {
       ...Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined)),
     }
     if (input.recurrence_rule !== undefined) {
-      merged.recurrence_rule = input.recurrence_rule
+      if (input.recurrence_rule && existing.recurrence_rule) {
+        // 渲染端提交的规则不含实例 override（拖动/删除单实例产生），保留既有 overrides
+        const nextRule: RecurrenceRule = { ...input.recurrence_rule }
+        if (!nextRule.overrides && existing.recurrence_rule.overrides) {
+          nextRule.overrides = existing.recurrence_rule.overrides
+        }
+        merged.recurrence_rule = nextRule
+      } else {
+        merged.recurrence_rule = input.recurrence_rule
+      }
     }
     if (input.reminders !== undefined) {
       merged.reminders = input.reminders
@@ -475,6 +498,56 @@ class CalendarService {
     const updated = this.getEvent(input.id)!
     this.regenerateEventReminders(updated)
     return updated
+  }
+
+  /**
+   * 实例级更新（RFC 5545 RECURRENCE-ID 例外）：把重复日程的某个实例移动/缩放到新时间，
+   * 不改动系列规则——其他实例保持原位。非重复事件退化为 updateEvent。
+   */
+  updateEventInstance(input: UpdateEventInstanceInput): CalendarEvent | null {
+    const existing = this.getEvent(input.id)
+    if (!existing) return null
+    // 非重复事件：直接整条更新
+    if (!existing.recurrence_rule) {
+      return this.updateEvent({ id: input.id, start_at: input.start_at, end_at: input.end_at })
+    }
+    // 防御性校验：锚点必须是自然发生点（或 RDATE 追加点），拒绝会静默丢失的脏锚点
+    if (!this.isNaturalOccurrence(existing, existing.recurrence_rule, input.anchor_at)) {
+      return null
+    }
+
+    const rule: RecurrenceRule = { ...existing.recurrence_rule }
+    const overrides = [...(rule.overrides ?? [])]
+    const idx = overrides.findIndex(o => o.recurrence_id === input.anchor_at)
+    if (idx >= 0) {
+      overrides[idx] = { ...overrides[idx], start_at: input.start_at, end_at: input.end_at }
+    } else {
+      overrides.push({ recurrence_id: input.anchor_at, start_at: input.start_at, end_at: input.end_at })
+    }
+    rule.overrides = overrides
+
+    this.db.prepare(
+      `UPDATE calendar_events SET recurrence_rule=?, updated_at=? WHERE id=?`
+    ).run(JSON.stringify(rule), Math.floor(Date.now() / 1000), input.id)
+    const updated = this.getEvent(input.id)
+    if (updated) this.regenerateEventReminders(updated)
+    return updated
+  }
+
+  /** 校验 anchor 是否为规则的自然发生点（含 RDATE 追加点），用于实例 override 前的防御性校验 */
+  private isNaturalOccurrence(event: CalendarEvent, rule: RecurrenceRule, anchor: number): boolean {
+    if ((rule.rdates ?? []).includes(anchor)) return true
+    const maxIterations = 10000
+    let cursor = event.start_at
+    for (let i = 0; i < maxIterations; i++) {
+      if (cursor === anchor) return true
+      if (cursor > anchor) return false
+      if (rule.until != null && cursor > rule.until) return false
+      const next = this.advanceRecurrence(cursor, rule)
+      if (next === cursor) return false
+      cursor = next
+    }
+    return false
   }
 
   deleteEvent(id: string): boolean {
@@ -1091,6 +1164,7 @@ class CalendarService {
         ...event,
         instance_start_at: event.start_at,
         instance_end_at: event.end_at,
+        instance_anchor_at: event.start_at,
         is_recurring: false,
       }]
     }
@@ -1101,6 +1175,8 @@ class CalendarService {
     const until = rule.until ?? winEnd + 86400
     const maxIterations = 10000
     let iter = 0
+    /** 自然循环中已处理的 RECURRENCE-ID（窗口外的锚点改在循环后再补输出） */
+    const handled = new Set<number>()
 
     let cursor = this.fastForwardCursor(event.start_at, winStart - 86400, rule)
     if (rule.count) {
@@ -1112,6 +1188,7 @@ class CalendarService {
       iter++
       if (cursor > until) break
       if (cursor > winEnd) break
+      handled.add(cursor)
       const override = overrides.get(cursor)
       if (override?.status === 'cancelled') {
         if (rule.count && iter >= rule.count) break
@@ -1120,20 +1197,53 @@ class CalendarService {
         cursor = next
         continue
       }
-      const instanceEnd = cursor + duration
-      if (instanceEnd >= winStart) {
-        instances.push({
-          ...event,
-          instance_start_at: cursor,
-          instance_end_at: instanceEnd,
-          is_recurring: true,
-          ...(override?.title ? { title: override.title } : {}),
-        })
+      // 实例级时间 override（拖动/缩放单实例产生）：实例在 override 后的时间渲染，原时刻不再输出
+      if (override?.start_at != null) {
+        const newStart = override.start_at
+        const newEnd = override.end_at ?? newStart + duration
+        if (newEnd >= winStart && newStart <= winEnd) {
+          instances.push({
+            ...event,
+            instance_start_at: newStart,
+            instance_end_at: newEnd,
+            instance_anchor_at: cursor,
+            is_recurring: true,
+            ...(override.title ? { title: override.title } : {}),
+          })
+        }
+      } else {
+        const instanceEnd = cursor + duration
+        if (instanceEnd >= winStart) {
+          instances.push({
+            ...event,
+            instance_start_at: cursor,
+            instance_end_at: instanceEnd,
+            instance_anchor_at: cursor,
+            is_recurring: true,
+            ...(override?.title ? { title: override.title } : {}),
+          })
+        }
       }
       if (rule.count && iter >= rule.count) break
       const next = this.advanceRecurrence(cursor, rule)
       if (next === cursor) break
       cursor = next
+    }
+
+    // 锚点在窗口外（被 fastForward 跳过或超出窗口）但 override 后时间落在窗口内的实例
+    for (const o of rule.overrides ?? []) {
+      if (o.status === 'cancelled' || o.start_at == null || handled.has(o.recurrence_id)) continue
+      if (o.recurrence_id > until) continue
+      const newEnd = o.end_at ?? o.start_at + duration
+      if (newEnd < winStart || o.start_at > winEnd) continue
+      instances.push({
+        ...event,
+        instance_start_at: o.start_at,
+        instance_end_at: newEnd,
+        instance_anchor_at: o.recurrence_id,
+        is_recurring: true,
+        ...(o.title ? { title: o.title } : {}),
+      })
     }
 
     for (const rd of rule.rdates ?? []) {
@@ -1143,6 +1253,7 @@ class CalendarService {
         ...event,
         instance_start_at: rd,
         instance_end_at: rd + duration,
+        instance_anchor_at: rd,
         is_recurring: true,
       })
     }
@@ -1350,11 +1461,20 @@ class CalendarService {
             const dt = new Date(date.getFullYear(), date.getMonth(), nextDay)
             return Math.floor(dt.getTime() / 1000)
           }
+          // 目标月可能没有任何合法日（如 bymonthday=[31] 遇 30 天月），
+          // 递归推进到再下一个周期，避免 undefined → Invalid Date → NaN 损坏 due_at
+          let cursor = this.addMonths(date, interval)
+          for (let guard = 0; guard < 48; guard++) {
+            const daysInMonth = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate()
+            const day = sortedDays.find(d => d >= 1 && d <= daysInMonth)
+            if (day != null) {
+              const dt = new Date(cursor.getFullYear(), cursor.getMonth(), day)
+              return Math.floor(dt.getTime() / 1000)
+            }
+            cursor = this.addMonths(cursor, interval)
+          }
           const nextMonth = this.addMonths(date, interval)
-          const daysInNext = new Date(nextMonth.getFullYear(), nextMonth.getMonth() + 1, 0).getDate()
-          const firstDay = sortedDays.find(d => d >= 1 && d <= daysInNext)!
-          const dt = new Date(nextMonth.getFullYear(), nextMonth.getMonth(), firstDay)
-          return Math.floor(dt.getTime() / 1000)
+          return Math.floor(nextMonth.getTime() / 1000)
         }
         const d = this.addMonths(date, interval)
         return Math.floor(d.getTime() / 1000)
@@ -1365,11 +1485,15 @@ class CalendarService {
           const sortedMonths = [...rule.bymonth].sort((a, b) => a - b)
           const nextMonthIdx = sortedMonths.map(m => m - 1).find(m => m > currentMonth)
           if (nextMonthIdx != null) {
-            const dt = new Date(date.getFullYear(), nextMonthIdx, date.getDate())
+            // 目标月天数可能少于当前日（31 日 → 2 月），用 Math.min 防止 Date 归一化滚到下月
+            const daysInTarget = new Date(date.getFullYear(), nextMonthIdx + 1, 0).getDate()
+            const dt = new Date(date.getFullYear(), nextMonthIdx, Math.min(date.getDate(), daysInTarget))
             return Math.floor(dt.getTime() / 1000)
           }
           const firstMonth = sortedMonths[0] - 1
-          const dt = new Date(date.getFullYear() + interval, firstMonth, date.getDate())
+          const targetYear = date.getFullYear() + interval
+          const daysInTarget = new Date(targetYear, firstMonth + 1, 0).getDate()
+          const dt = new Date(targetYear, firstMonth, Math.min(date.getDate(), daysInTarget))
           return Math.floor(dt.getTime() / 1000)
         }
         const d = this.addYears(date, interval)

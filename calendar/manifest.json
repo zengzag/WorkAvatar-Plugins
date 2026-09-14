@@ -9,7 +9,7 @@
   "renderer": "dist/renderer/index.js",
   "locale": "locale",
   "ipc": [
-    "list-events", "create-event", "update-event", "delete-event", "delete-event-instance",
+    "list-events", "create-event", "update-event", "update-event-instance", "delete-event", "delete-event-instance",
     "list-todos", "list-todo-instances", "create-todo", "update-todo", "delete-todo", "delete-todo-instance", "complete-todo", "todo-stats",
     "get-settings", "set-settings",
     "export-data", "import-data",

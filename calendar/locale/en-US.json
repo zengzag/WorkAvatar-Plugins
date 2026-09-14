@@ -34,6 +34,7 @@
     "recurringDeleteThis": "Only this one (skip this occurrence, keep the rest)",
     "recurringDeleteFuture": "This and all following (remove from this occurrence onward)",
     "recurringDeleteAll": "All (delete the entire series)",
+    "recurringEditHint": "Recurring event: time changes apply to this occurrence only; other fields such as title, description and color apply to the whole series.",
     "newTodo": "New Task",
     "editTodo": "Edit Task",
     "editDetail": "Edit details",

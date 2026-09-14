@@ -17,6 +17,7 @@ import type {
   ListEventsParams,
   CreateEventInput,
   UpdateEventInput,
+  UpdateEventInstanceParams,
   DeleteInstanceMode,
   DeleteEventInstanceParams,
   DeleteTodoInstanceParams,
@@ -86,6 +87,8 @@ export const cal = {
   listEvents: (range: ListEventsParams) => invoke<CalendarEventInstance[]>('list-events', range),
   createEvent: (input: CreateEventInput) => invoke<CalendarEvent | { error: string }>('create-event', input),
   updateEvent: (input: UpdateEventInput) => invoke<CalendarEvent | { error: string }>('update-event', input),
+  updateEventInstance: (params: UpdateEventInstanceParams) =>
+    invoke<CalendarEvent | { error: string }>('update-event-instance', params),
   deleteEvent: (id: string) => invoke<{ success: boolean } | { error: string }>('delete-event', { id }),
   deleteEventInstance: (params: DeleteEventInstanceParams) =>
     invoke<{ success: boolean } | { error: string }>('delete-event-instance', params),
