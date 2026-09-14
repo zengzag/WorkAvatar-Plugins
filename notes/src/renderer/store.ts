@@ -16,10 +16,11 @@ import type {
   NoteSearchHit,
   NoteContent,
   NotesDataChangedPayload,
+  RenameResult,
 } from './types'
 import { DEFAULT_NOTES_SETTINGS } from './types'
 
-export type { NoteEditorMode }
+export type { NoteEditorMode, RenameResult }
 
 let bridge: PluginBridge | null = null
 let hostI18n: ((key: string, options?: Record<string, unknown>) => string) | null = null
@@ -136,6 +137,8 @@ interface NotesState {
   switchTab: (tabId: string) => void
   closeTab: (tabId: string) => { hasDirty: boolean; nextActiveId: string | null }
   renameTabPath: (oldRelPath: string, newRelPath: string) => void
+  /** rename/move 文件夹后按前缀批量迁移已打开 Tab 的 relPath（含自身精确匹配 + 子路径前缀匹配） */
+  migrateTabPaths: (from: string, to: string) => number
   setTabContent: (tabId: string, content: string) => void
   setTabSaved: (tabId: string, content: string, mtime: number) => void
   setTabSaving: (tabId: string) => void
@@ -290,6 +293,22 @@ export const useNotesStore = create<NotesState>()(
         }
       }),
 
+    migrateTabPaths: (from, to) => {
+      if (!from || !to || from === to) return 0
+      let migrated = 0
+      set((s) => {
+        for (const tab of s.tabs) {
+          if (!tab.relPath) continue
+          const next = migrateNoteRelPath(tab.relPath, from, to)
+          if (next !== tab.relPath) {
+            tab.relPath = next
+            migrated++
+          }
+        }
+      })
+      return migrated
+    },
+
     setTabContent: (tabId, content) =>
       set((s) => {
         const tab = s.tabs.find((t) => t.id === tabId)
@@ -407,20 +426,20 @@ export async function createFolder(parentRelPath: string, name: string): Promise
   return res as NoteNode | null
 }
 
-export async function renameNote(relPath: string, newName: string): Promise<{ relPath: string } | null> {
-  const res = await invoke<{ relPath: string } | { error: string }>('rename', { relPath, newName })
+export async function renameNote(relPath: string, newName: string): Promise<RenameResult | null> {
+  const res = await invoke<RenameResult | { error: string }>('rename', { relPath, newName })
   if (res && typeof res === 'object' && 'error' in (res as any)) {
     throw new Error((res as any).error)
   }
-  return res as { relPath: string } | null
+  return res as RenameResult | null
 }
 
-export async function moveNote(srcRelPath: string, destParentRelPath: string): Promise<{ relPath: string } | null> {
-  const res = await invoke<{ relPath: string } | { error: string }>('move', { srcRelPath, destParentRelPath })
+export async function moveNote(srcRelPath: string, destParentRelPath: string): Promise<RenameResult | null> {
+  const res = await invoke<RenameResult | { error: string }>('move', { srcRelPath, destParentRelPath })
   if (res && typeof res === 'object' && 'error' in (res as any)) {
     throw new Error((res as any).error)
   }
-  return res as { relPath: string } | null
+  return res as RenameResult | null
 }
 
 export async function copyNote(srcRelPath: string, destParentRelPath: string): Promise<{ relPath: string } | null> {

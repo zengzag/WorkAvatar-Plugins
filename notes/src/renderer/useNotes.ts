@@ -23,14 +23,14 @@ import {
   openDiary,
   onDataChanged,
 } from './store'
-import type { NoteNode, NotesSettings } from './types'
+import type { NoteNode, NotesSettings, PathMapping } from './types'
 
 export function useNotes() {
   const { message } = App.useApp()
   const {
     tree, treeLoading, tabs, activeTabId, settings, settingsLoading,
     setTree, setTreeLoading, setSettings, setSettingsLoading, reset,
-    createEmptyTab, openNoteInTab, openExternalInTab, switchTab, closeTab, renameTabPath,
+    createEmptyTab, openNoteInTab, openExternalInTab, switchTab, closeTab, renameTabPath, migrateTabPaths,
     setTabContent, setTabSaved, setTabSaving, setActiveTabLocateText, clearTabLocateText,
   } = useNotesStore()
 
@@ -83,6 +83,22 @@ export function useNotes() {
       last_opened: activeRelPath,
     })
   }, [])
+
+  /**
+   * rename/move 后迁移 Tab 路径：主进程返回前缀映射时按前缀批量迁移（文件夹场景子文件 Tab 一并更新），
+   * 否则回退为旧逻辑（仅精确匹配单项）。
+   */
+  const migrateTabsAfterRename = useCallback(async (oldRelPath: string, result: { relPath?: string; moved?: PathMapping } | null) => {
+    const newRel = result?.relPath
+    if (!newRel) return
+    const moved = result?.moved
+    if (moved && moved.from && moved.to && moved.from !== moved.to) {
+      migrateTabPaths(moved.from, moved.to)
+    } else {
+      renameTabPath(oldRelPath, newRel)
+    }
+    await persistTabs()
+  }, [migrateTabPaths, renameTabPath, persistTabs])
 
   const handleNewTab = useCallback(async () => {
     const id = createEmptyTab()
@@ -248,18 +264,14 @@ export function useNotes() {
         message.error((res as any).error)
         return null
       }
-      const newRel = (res as any)?.relPath as string | undefined
-      if (newRel) {
-        renameTabPath(relPath, newRel)
-        await persistTabs()
-      }
+      await migrateTabsAfterRename(relPath, res)
       await refreshTree()
-      return newRel ?? null
+      return (res as any)?.relPath ?? null
     } catch (err: any) {
       message.error(err?.message || hostT('renameFailed'))
       return null
     }
-  }, [renameTabPath, persistTabs, refreshTree, message])
+  }, [migrateTabsAfterRename, refreshTree, message])
 
   const moveItem = useCallback(async (srcRelPath: string, destParentRelPath: string) => {
     try {
@@ -268,18 +280,14 @@ export function useNotes() {
         message.error((res as any).error)
         return false
       }
-      const newRel = (res as any)?.relPath as string | undefined
-      if (newRel) {
-        renameTabPath(srcRelPath, newRel)
-        await persistTabs()
-      }
+      await migrateTabsAfterRename(srcRelPath, res)
       await refreshTree()
       return true
     } catch (err: any) {
       message.error(err?.message || hostT('moveFailed'))
       return false
     }
-  }, [renameTabPath, persistTabs, refreshTree, message])
+  }, [migrateTabsAfterRename, refreshTree, message])
 
   const copyItem = useCallback(async (srcRelPath: string, destParentRelPath: string) => {
     try {
@@ -303,10 +311,15 @@ export function useNotes() {
         message.error((res as any).error)
         return false
       }
+      // 关闭被删项自身的 Tab 以及其子路径下的所有 Tab（删除文件夹场景），
+      // 否则残留 Tab 继续保存会在旧路径重建文件/目录
       const state = useNotesStore.getState()
-      const tabToClose = state.tabs.find((tab) => tab.relPath === relPath)
-      if (tabToClose) {
-        state.closeTab(tabToClose.id)
+      const prefix = `${relPath}/`
+      const affectedIds = state.tabs
+        .filter((tab) => tab.relPath && (tab.relPath === relPath || tab.relPath.startsWith(prefix)))
+        .map((tab) => tab.id)
+      for (const id of affectedIds) {
+        useNotesStore.getState().closeTab(id)
       }
       await persistTabs()
       await refreshTree()

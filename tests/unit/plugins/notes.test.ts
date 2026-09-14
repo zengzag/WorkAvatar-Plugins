@@ -214,3 +214,95 @@ describe('notes 插件 IPC 边界 case', () => {
     expect(res.error).toBeTruthy()
   })
 })
+
+describe('notes 插件 rename/move 路径映射（文件夹 Tab 迁移）', () => {
+  let mock: ReturnType<typeof createMockContext>
+  // vault 为共享临时目录，名称加时间戳避免历史残留干扰
+  const uniq = () => `${Date.now()}_${Math.floor(Math.random() * 1e6)}`
+
+  beforeEach(async () => {
+    mock = createMockContext('notes')
+    const mod = await loadPlugin()
+    mod.activate(mock.ctx)
+  })
+
+  it('rename 文件返回 moved 映射（from=旧路径, to=新路径）', async () => {
+    const create = mock.ipc.handlers.get('create-note')!
+    const created = await create({ parentRelPath: '', name: `映射笔记${uniq()}` }) as { relPath: string }
+    const rename = mock.ipc.handlers.get('rename')!
+    const res = await rename({ relPath: created.relPath, newName: `映射改名${uniq()}` }) as { relPath?: string; moved?: { from: string; to: string }; error?: string }
+    expect(res.error).toBeUndefined()
+    expect(res.moved).toBeTruthy()
+    expect(res.moved!.from).toBe(created.relPath)
+    expect(res.moved!.to).toBe(res.relPath)
+    // 新路径可读
+    const read = mock.ipc.handlers.get('read')!
+    const content = await read(res.relPath) as { error?: string }
+    expect(content.error).toBeUndefined()
+  })
+
+  it('rename 文件夹后子文件路径整体迁移，旧路径失效', async () => {
+    const createFolder = mock.ipc.handlers.get('create-folder')!
+    const folder = await createFolder({ parentRelPath: '', name: `映射目录${uniq()}` }) as { relPath: string }
+    const createNote = mock.ipc.handlers.get('create-note')!
+    const child = await createNote({ parentRelPath: folder.relPath, name: `子笔记${uniq()}` }) as { relPath: string }
+    const childName = child.relPath.slice(child.relPath.lastIndexOf('/') + 1)
+
+    const rename = mock.ipc.handlers.get('rename')!
+    const res = await rename({ relPath: folder.relPath, newName: `映射目录改名${uniq()}` }) as { relPath?: string; moved?: { from: string; to: string }; error?: string }
+    expect(res.error).toBeUndefined()
+    expect(res.moved!.from).toBe(folder.relPath)
+    expect(res.moved!.to).toBe(res.relPath)
+
+    // 渲染端按前缀迁移后的路径应真实存在
+    const newChildRel = `${res.relPath}/${childName}`
+    const read = mock.ipc.handlers.get('read')!
+    const content = await read(newChildRel) as { error?: string }
+    expect(content.error).toBeUndefined()
+    // 旧路径已不存在
+    expect(() => read(child.relPath)).toThrow()
+  })
+
+  it('move 文件夹返回前缀映射', async () => {
+    const createFolder = mock.ipc.handlers.get('create-folder')!
+    const src = await createFolder({ parentRelPath: '', name: `移动源目录${uniq()}` }) as { relPath: string }
+    const dest = await createFolder({ parentRelPath: '', name: `移动目标目录${uniq()}` }) as { relPath: string }
+    const createNote = mock.ipc.handlers.get('create-note')!
+    const child = await createNote({ parentRelPath: src.relPath, name: `移动子笔记${uniq()}` }) as { relPath: string }
+    const childName = child.relPath.slice(child.relPath.lastIndexOf('/') + 1)
+
+    const move = mock.ipc.handlers.get('move')!
+    const res = await move({ srcRelPath: src.relPath, destParentRelPath: dest.relPath }) as { relPath?: string; moved?: { from: string; to: string }; error?: string }
+    expect(res.error).toBeUndefined()
+    expect(res.moved!.from).toBe(src.relPath)
+    expect(res.moved!.to).toBe(res.relPath)
+
+    const read = mock.ipc.handlers.get('read')!
+    const content = await read(`${res.relPath}/${childName}`) as { error?: string }
+    expect(content.error).toBeUndefined()
+  })
+})
+
+describe('notes 渲染端 migrateNoteRelPath（前缀迁移纯函数）', () => {
+  it('精确匹配 → 新路径', async () => {
+    const { migrateNoteRelPath } = await import('../../../notes/src/renderer/types')
+    expect(migrateNoteRelPath('foo', 'foo', 'bar')).toBe('bar')
+  })
+
+  it('子路径前缀 → 新前缀 + 剩余路径', async () => {
+    const { migrateNoteRelPath } = await import('../../../notes/src/renderer/types')
+    expect(migrateNoteRelPath('foo/a/b.md', 'foo', 'bar')).toBe('bar/a/b.md')
+  })
+
+  it("'foo' 前缀不会误命中 'foobar/...'", async () => {
+    const { migrateNoteRelPath } = await import('../../../notes/src/renderer/types')
+    expect(migrateNoteRelPath('foobar/x.md', 'foo', 'bar')).toBe('foobar/x.md')
+  })
+
+  it('不匹配 / 空值 / from==to 时原样返回', async () => {
+    const { migrateNoteRelPath } = await import('../../../notes/src/renderer/types')
+    expect(migrateNoteRelPath('other.md', 'foo', 'bar')).toBe('other.md')
+    expect(migrateNoteRelPath(null, 'foo', 'bar')).toBeNull()
+    expect(migrateNoteRelPath('foo/x.md', 'foo', 'foo')).toBe('foo/x.md')
+  })
+})

@@ -80,6 +80,15 @@ export interface NotesDataChangedPayload {
   self?: boolean
 }
 
+/** 路径映射：rename/move 文件夹后，渲染端按前缀批量迁移已打开 Tab 的 relPath */
+export interface PathMapping {
+  from: string
+  to: string
+}
+
+/** rename/move 返回：relPath 为项自身的新路径；moved 为渲染端做前缀迁移用的路径映射 */
+export type RenameResult = { relPath: string; moved?: PathMapping }
+
 const SETTINGS_KEY = 'notes_settings'
 
 // ====== 服务 ======
@@ -309,7 +318,7 @@ class NotesService {
     }
   }
 
-  renameItem(relPath: string, newName: string): { relPath: string } {
+  renameItem(relPath: string, newName: string): RenameResult {
     const full = this.resolve(relPath)
     if (!fs.existsSync(full)) throw new Error('目标不存在')
     const isFile = fs.statSync(full).isFile()
@@ -332,10 +341,12 @@ class NotesService {
     const parentRel = path.dirname(relPath)
     const newRel = parentRel === '.' ? finalName : `${this.toPosix(parentRel)}/${finalName}`
     this.markSelfWrite(newRel)
-    return { relPath: this.toPosix(newRel) }
+    // 返回路径映射：文件夹重命名时渲染端据此把子文件的已打开 Tab 批量迁到新前缀，
+    // 否则 Tab 继续持有旧 relPath，保存时 writeNote(旧路径) 会重建旧目录产生分叉数据
+    return { relPath: this.toPosix(newRel), moved: { from: this.toPosix(relPath), to: this.toPosix(newRel) } }
   }
 
-  moveItem(srcRelPath: string, destParentRelPath: string): { relPath: string } {
+  moveItem(srcRelPath: string, destParentRelPath: string): RenameResult {
     const srcFull = this.resolve(srcRelPath)
     if (!fs.existsSync(srcFull)) throw new Error('源不存在')
     const destParentAbs = destParentRelPath ? this.resolve(destParentRelPath) : this.vaultRoot
@@ -357,7 +368,8 @@ class NotesService {
       ? this.toPosix(`${destParentRelPath}/${baseName}`)
       : this.toPosix(baseName)
     this.markSelfWrite(newRel)
-    return { relPath: newRel }
+    // 同 renameItem：返回前缀映射供渲染端迁移已打开 Tab
+    return { relPath: newRel, moved: { from: this.toPosix(srcRelPath), to: newRel } }
   }
 
   async copyItem(srcRelPath: string, destParentRelPath: string): Promise<{ relPath: string }> {
@@ -550,12 +562,15 @@ class NotesService {
   }
 
   saveImage(buffer: Buffer, fileName: string): string {
+    // 图片扩展名白名单：防止渲染端被注入后借道写入任意扩展名文件
+    const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp'])
+    const rawExt = path.extname(fileName).toLowerCase()
+    const ext = IMAGE_EXTS.has(rawExt) ? rawExt : '.png'
     const attachmentsDir = path.join(this.vaultRoot, 'attachments')
     if (!fs.existsSync(attachmentsDir)) {
       fs.mkdirSync(attachmentsDir, { recursive: true })
     }
-    const ext = path.extname(fileName) || '.png'
-    const baseName = path.basename(fileName, ext).replace(/[^\w\u4e00-\u9fa5-]/g, '_')
+    const baseName = path.basename(fileName, rawExt || '.png').replace(/[^\w\u4e00-\u9fa5-]/g, '_')
     const timestamp = Date.now()
     const uniqueName = `${baseName}_${timestamp}${ext}`
     const absPath = path.join(attachmentsDir, uniqueName)

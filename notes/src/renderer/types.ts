@@ -78,3 +78,27 @@ export interface NotesDataChangedPayload {
   ts: number
   self?: boolean
 }
+
+/** 路径映射：rename/move 后渲染端按前缀批量迁移已打开 Tab 的 relPath */
+export interface PathMapping {
+  from: string
+  to: string
+}
+
+/** rename/move IPC 返回：relPath 为项自身的新路径；moved 为前缀迁移用的路径映射 */
+export type RenameResult = { relPath: string; moved?: PathMapping }
+
+/**
+ * 按 PathMapping 迁移单个 relPath：
+ * - 与 from 完全相等 → to
+ * - 以 from/ 为前缀（文件夹子路径；'foo/' 不会误命中 'foobar/'）→ to + 剩余路径
+ * - 不匹配 → 原样返回
+ * 纯函数，供 store.migrateTabPaths 与单测使用。
+ */
+export function migrateNoteRelPath(relPath: string | null, from: string, to: string): string | null {
+  if (!relPath || !from || !to || from === to) return relPath
+  if (relPath === from) return to
+  const prefix = `${from}/`
+  if (relPath.startsWith(prefix)) return `${to}/${relPath.slice(prefix.length)}`
+  return relPath
+}
