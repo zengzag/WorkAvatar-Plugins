@@ -1,5 +1,15 @@
 {
   "navLabel": "Data Model",
+  "toolNames": {
+    "get_model_meta": "Get Model Meta",
+    "get_model_json": "Get Model JSON",
+    "set_model_json": "Set Model JSON",
+    "patch_model": "Patch Model",
+    "import_dbml": "Import DBML",
+    "import_dbml_file": "Import DBML File",
+    "export_model_file": "Export Model File",
+    "import_model_file": "Import Model File"
+  },
   "page.title": "Data Model",
   "page.empty.title": "Canvas is empty",
   "page.empty.desc": "Canvas is empty, add a table or load a sample",

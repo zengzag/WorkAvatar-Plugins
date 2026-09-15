@@ -1,5 +1,17 @@
 {
   "navLabel": "Calendar",
+  "toolNames": {
+    "calendar_event_list": "List Events",
+    "calendar_event_create": "Create Event",
+    "calendar_event_update": "Update Event",
+    "calendar_event_delete": "Delete Event",
+    "calendar_todo_list": "List Todos",
+    "calendar_todo_create": "Create Todo",
+    "calendar_todo_update": "Update Todo",
+    "calendar_todo_delete": "Delete Todo",
+    "calendar_todo_complete": "Complete/Uncomplete Todo",
+    "calendar_todo_stats": "Todo Stats"
+  },
   "common": {
     "confirm": "Confirm",
     "cancel": "Cancel",

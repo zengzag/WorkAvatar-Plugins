@@ -1,5 +1,15 @@
 {
   "navLabel": "数据模型",
+  "toolNames": {
+    "get_model_meta": "获取模型元信息",
+    "get_model_json": "获取模型 JSON",
+    "set_model_json": "写入模型 JSON",
+    "patch_model": "局部更新模型",
+    "import_dbml": "导入 DBML",
+    "import_dbml_file": "导入 DBML 文件",
+    "export_model_file": "导出模型文件",
+    "import_model_file": "导入模型文件"
+  },
   "page.title": "数据模型",
   "page.empty.title": "画布为空",
   "page.empty.desc": "画布为空，点击下方按钮新建表或加载示例",

@@ -1,5 +1,15 @@
 {
   "navLabel": "自动化",
+  "toolNames": {
+    "automation_task_list": "列出自动化任务",
+    "automation_task_create": "创建自动化任务",
+    "automation_task_update": "修改自动化任务",
+    "automation_task_delete": "删除自动化任务",
+    "automation_task_toggle": "启用/暂停任务",
+    "automation_task_run_now": "立即执行任务",
+    "automation_task_preview": "预览未来执行时间",
+    "automation_run_list": "列出执行历史"
+  },
   "automation": {
     "tabTasks": "自动化任务",
     "tabHistory": "执行历史",

@@ -1,5 +1,15 @@
 {
   "navLabel": "Automation",
+  "toolNames": {
+    "automation_task_list": "List Automation Tasks",
+    "automation_task_create": "Create Automation Task",
+    "automation_task_update": "Update Automation Task",
+    "automation_task_delete": "Delete Automation Task",
+    "automation_task_toggle": "Enable/Pause Task",
+    "automation_task_run_now": "Run Task Now",
+    "automation_task_preview": "Preview Upcoming Runs",
+    "automation_run_list": "List Execution History"
+  },
   "automation": {
     "tabTasks": "Tasks",
     "tabHistory": "History",
