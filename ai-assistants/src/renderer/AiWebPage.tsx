@@ -180,7 +180,6 @@ export function AiWebPage() {
     setLayout(next)
   }, [])
 
-  const closeSplit = useCallback(() => switchMode('single'), [switchMode])
   const noopSelect = useCallback(() => {}, [])
   const toggleSettings = useCallback(() => setSettingsOpen((open) => !open), [])
 
@@ -236,7 +235,6 @@ export function AiWebPage() {
             site={getSiteById(layout.panes[1]) ?? null}
             sites={enabledSites}
             onSelectSite={(siteId) => setPaneSite(1, siteId)}
-            onClose={closeSplit}
             // 双栏时设置按钮落在最右一栏，位置与右侧设置面板呼应
             onToggleSettings={toggleSettings}
             settingsOpen={settingsOpen}

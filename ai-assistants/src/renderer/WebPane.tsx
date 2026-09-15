@@ -7,6 +7,9 @@
  *
  * 标签页模式下多个栏位同时挂载、绝对定位堆叠，非激活栏位用 visibility 隐藏
  * （而非 display:none —— 后者会让 guest 内部尺寸归零，重新显示时不再重绘）。
+ *
+ * 工具条上的「关闭网页」把 guest 从容器里摘掉（销毁即释放其渲染进程占用的内存），
+ * 但保留栏位与标签页本身，随时可重新打开，登录态与对话都还在。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Dropdown, Tooltip } from 'antd'
@@ -16,6 +19,7 @@ import {
   CloseOutlined,
   DownOutlined,
   HomeOutlined,
+  PoweroffOutlined,
   ReloadOutlined,
   SettingOutlined,
 } from '@ant-design/icons'
@@ -38,8 +42,6 @@ export interface WebPaneProps {
   stacked?: boolean
   /** 保留 guest 存活但不可见 */
   hidden?: boolean
-  /** 提供后显示关闭按钮 */
-  onClose?: () => void
   /** 提供后显示设置按钮（页面级开关，只落在最右一栏） */
   onToggleSettings?: () => void
   /** 设置面板当前是否展开（驱动按钮激活态） */
@@ -53,7 +55,6 @@ export function WebPane({
   compact,
   stacked,
   hidden,
-  onClose,
   onToggleSettings,
   settingsOpen,
 }: WebPaneProps) {
@@ -65,6 +66,8 @@ export function WebPane({
   const [canBack, setCanBack] = useState(false)
   const [canForward, setCanForward] = useState(false)
   const [blocked, setBlocked] = useState(false)
+  /** 网页已关闭（guest 已销毁，仅剩空栏位） */
+  const [closed, setClosed] = useState(false)
 
   const siteId = site?.id ?? null
   const siteUrl = site?.url ?? null
@@ -80,16 +83,23 @@ export function WebPane({
     }
   }, [])
 
+  // 关闭网页后换站点：视为重新打开，直接加载新站点
+  useEffect(() => {
+    setClosed(false)
+  }, [siteId])
+
   useEffect(() => {
     const host = hostRef.current
     if (!host) return
-    if (!siteId || !siteUrl) {
-      // 空栏：清掉残留 guest
+    if (!siteId || !siteUrl || closed) {
+      // 空栏 / 网页已关闭：清掉 guest（销毁 guest 即释放其渲染进程内存）
       host.replaceChildren()
       viewRef.current = null
       setBlocked(false)
       setLoading(false)
-      setUrl('')
+      setCanBack(false)
+      setCanForward(false)
+      if (!siteId || !siteUrl) setUrl('')
       return
     }
 
@@ -155,7 +165,7 @@ export function WebPane({
       wv.remove()
       if (viewRef.current === wv) viewRef.current = null
     }
-  }, [siteId, siteUrl, syncNavState])
+  }, [siteId, siteUrl, closed, syncNavState])
 
   const goBack = () => {
     try {
@@ -189,6 +199,9 @@ export function WebPane({
       /* guest not ready */
     }
   }
+  /** 关掉网页（销毁 guest，释放其内存），栏位与标签页保留 */
+  const closePage = () => setClosed(true)
+  const reopenPage = () => setClosed(false)
 
   const siteMenu = {
     items: sites.map((s) => ({
@@ -258,12 +271,17 @@ export function WebPane({
             getPopupContainer={popupContainer}
             title={loading ? t('pane.stop') : t('pane.reload')}
           >
-            <button type="button" className="aiweb-icon-btn" onClick={reloadOrStop}>
+            <button
+              type="button"
+              className="aiweb-icon-btn"
+              disabled={closed}
+              onClick={reloadOrStop}
+            >
               {loading ? <CloseOutlined /> : <ReloadOutlined />}
             </button>
           </Tooltip>
           <Tooltip placement="bottom" getPopupContainer={popupContainer} title={t('pane.home')}>
-            <button type="button" className="aiweb-icon-btn" onClick={goHome}>
+            <button type="button" className="aiweb-icon-btn" disabled={closed} onClick={goHome}>
               <HomeOutlined />
             </button>
           </Tooltip>
@@ -274,6 +292,22 @@ export function WebPane({
         </div>
 
         <div className="aiweb-nav">
+          {siteId && (
+            <Tooltip
+              placement="bottom"
+              getPopupContainer={popupContainer}
+              title={t('pane.closePage')}
+            >
+              <button
+                type="button"
+                className="aiweb-icon-btn"
+                disabled={closed}
+                onClick={closePage}
+              >
+                <PoweroffOutlined />
+              </button>
+            </Tooltip>
+          )}
           {onToggleSettings && (
             <Tooltip placement="bottom" getPopupContainer={popupContainer} title={t('settings.title')}>
               <button
@@ -282,13 +316,6 @@ export function WebPane({
                 onClick={onToggleSettings}
               >
                 <SettingOutlined />
-              </button>
-            </Tooltip>
-          )}
-          {onClose && (
-            <Tooltip placement="bottom" getPopupContainer={popupContainer} title={t('pane.close')}>
-              <button type="button" className="aiweb-icon-btn" onClick={onClose}>
-                <CloseOutlined />
               </button>
             </Tooltip>
           )}
@@ -302,6 +329,16 @@ export function WebPane({
         {!siteId && (
           <div className="aiweb-hint">
             <div className="aiweb-hint-text">{t('pane.empty')}</div>
+          </div>
+        )}
+        {closed && siteId && (
+          <div className="aiweb-hint">
+            <div className="aiweb-hint-title">{t('pane.closed.title')}</div>
+            <div className="aiweb-hint-text">{t('pane.closed.text')}</div>
+            <button type="button" className="aiweb-primary-btn" onClick={reopenPage}>
+              <ReloadOutlined />
+              {t('pane.closed.action')}
+            </button>
           </div>
         )}
         {blocked && siteId && (
