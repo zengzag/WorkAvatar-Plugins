@@ -154,7 +154,7 @@ const TodoFormModal: React.FC<TodoFormModalProps> = ({
         message.error(result.error)
       }
     } catch (err: any) {
-      message.error(err?.message || 'Failed to save todo')
+      message.error(err?.message || t('calendar.saveTodoFailed'))
     }
   }
 
@@ -176,7 +176,7 @@ const TodoFormModal: React.FC<TodoFormModalProps> = ({
         message.error(result.error)
       }
     } catch (err: any) {
-      message.error(err?.message || 'Failed to delete todo')
+      message.error(err?.message || t('calendar.deleteTodoFailed'))
     }
   }
 

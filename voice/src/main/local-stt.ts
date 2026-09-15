@@ -313,11 +313,11 @@ class LocalSTTService {
   checkBuiltinModel(): VoiceLocalModelStatus {
     const modelDir = this.getBuiltinModelDir()
     if (!fs.existsSync(modelDir)) {
-      return { available: false, modelDir, error: `内置模型目录不存在: ${modelDir}` }
+      return { available: false, modelDir, error: this.ctx.services.i18n.t('errors.builtinModelDirMissing', { path: modelDir }) }
     }
     const resolved = resolveModelFiles('zipformer', modelDir)
     if (!resolved.found) {
-      return { available: false, modelType: 'zipformer', modelDir, error: `缺少模型文件: ${resolved.missing[0]}` }
+      return { available: false, modelType: 'zipformer', modelDir, error: this.ctx.services.i18n.t('errors.builtinModelFileMissing', { file: resolved.missing[0] }) }
     }
     return { available: true, modelType: 'zipformer', modelDir }
   }
@@ -341,7 +341,7 @@ class LocalSTTService {
     recognizer = null
 
     if (!resolved.found) {
-      throw new Error(`内置模型文件缺失: ${resolved.missing.join(', ')}`)
+      throw new Error(this.ctx.services.i18n.t('errors.builtinModelFilesMissing', { files: resolved.missing.join(', ') }))
     }
 
     const lib = this.loadSherpaOnnx()
@@ -513,7 +513,7 @@ class LocalSTTService {
 
       processedSegments++
       const progress = 20 + Math.floor((processedSegments / totalSegments) * 70)
-      onProgress?.(progress, `Recognizing segment ${processedSegments}/${totalSegments}...`)
+      onProgress?.(progress, this.ctx.services.i18n.t('progress.recognizingSegment', { current: processedSegments, total: totalSegments }))
       // 让出事件循环（与 realtime 队列相同的让出模式），保证主进程能处理 UI/IPC
       await new Promise<void>((resolve) => setImmediate(resolve))
     }
@@ -567,7 +567,7 @@ class LocalSTTService {
 
       processedChunks++
       const progress = 20 + Math.floor((processedChunks / totalChunks) * 70)
-      onProgress?.(progress, `Recognizing segment ${processedChunks}/${totalChunks}...`)
+      onProgress?.(progress, this.ctx.services.i18n.t('progress.recognizingSegment', { current: processedChunks, total: totalChunks }))
       // 让出事件循环（与 realtime 队列相同的让出模式），保证主进程能处理 UI/IPC
       await new Promise<void>((resolve) => setImmediate(resolve))
     }
@@ -597,10 +597,10 @@ class LocalSTTService {
     }
 
     const { recognizer: rec, isStreaming } = this.getRecognizer(config)
-    onProgress?.(10, 'Loading audio file...')
+    onProgress?.(10, this.ctx.services.i18n.t('progress.loadingAudio'))
 
     const { samples, sampleRate } = this.readWavFile(audioPath)
-    onProgress?.(20, 'Processing audio...')
+    onProgress?.(20, this.ctx.services.i18n.t('progress.processingAudio'))
 
     if (signal?.aborted) throw new Error('Aborted')
 
@@ -608,7 +608,7 @@ class LocalSTTService {
       ? await this.transcribeOnline(rec, samples, sampleRate, onProgress, signal)
       : await this.transcribeOffline(rec, samples, sampleRate, onProgress, signal)
 
-    onProgress?.(95, 'Finalizing transcript...')
+    onProgress?.(95, this.ctx.services.i18n.t('progress.finalizingTranscript'))
 
     return {
       text: result.text,
@@ -655,7 +655,7 @@ class LocalSTTService {
     const modelDir = this.getBuiltinModelDir()
     const resolved = resolveModelFiles('zipformer', modelDir)
     if (!resolved.found) {
-      throw new Error(`内置模型文件缺失: ${resolved.missing.join(', ')}`)
+      throw new Error(this.ctx.services.i18n.t('errors.builtinModelFilesMissing', { files: resolved.missing.join(', ') }))
     }
 
     return new Promise<TranscriptResult>((resolve, reject) => {
@@ -706,7 +706,11 @@ class LocalSTTService {
       worker.on('message', (msg: any) => {
         if (!msg || typeof msg !== 'object') return
         if (msg.type === 'progress') {
-          onProgress?.(msg.progress, msg.message)
+          // worker 无法访问插件 locale：以文案 key 传递，由主进程按当前语言解析
+          const message = msg.messageKey
+            ? this.ctx.services.i18n.t(msg.messageKey, msg.messageParams)
+            : msg.message
+          onProgress?.(msg.progress, message)
         } else if (msg.type === 'done') {
           settleResolve({
             text: msg.result?.text || '',
@@ -743,7 +747,7 @@ class LocalSTTService {
     try {
       const { recognizer: rec, isStreaming } = this.getRecognizer(config)
       if (!isStreaming) {
-        return { ok: false, error: '实时识别仅支持流式模型（streaming zipformer），请切换模型或使用录音后识别' }
+        return { ok: false, error: this.ctx.services.i18n.t('errors.realtimeStreamingOnly') }
       }
 
       const stream = rec.createStream()

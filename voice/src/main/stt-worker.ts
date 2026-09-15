@@ -83,7 +83,7 @@ const MAX_DECODE_ITERATIONS = 100000
 
 function run() {
   const d = workerData
-  parentPort.postMessage({ type: 'progress', progress: 10, message: 'Loading audio file...' })
+  parentPort.postMessage({ type: 'progress', progress: 10, messageKey: 'progress.loadingAudio' })
   const lib = require(d.moduleFile)
 
   const modelConfig = {
@@ -111,7 +111,7 @@ function run() {
   }
 
   const { samples, sampleRate } = readWave(lib, d.audioPath)
-  parentPort.postMessage({ type: 'progress', progress: 20, message: 'Processing audio...' })
+  parentPort.postMessage({ type: 'progress', progress: 20, messageKey: 'progress.processingAudio' })
   if (aborted) throw new Error('Aborted')
 
   const chunkSamples = Math.min(30 * sampleRate, samples.length)
@@ -147,7 +147,8 @@ function run() {
     parentPort.postMessage({
       type: 'progress',
       progress: 20 + Math.floor((processed / totalChunks) * 70),
-      message: 'Recognizing segment ' + processed + '/' + totalChunks + '...',
+      messageKey: 'progress.recognizingSegment',
+      messageParams: { current: processed, total: totalChunks },
     })
   }
 

@@ -10,6 +10,16 @@
     "automation_task_preview": "Preview Upcoming Runs",
     "automation_run_list": "List Execution History"
   },
+  "toolDescriptions": {
+    "automation_task_list": "List automation tasks, filterable by employee, enabled state, tags, and keywords",
+    "automation_task_create": "Create a scheduled task that runs a prompt with a digital employee at the configured time",
+    "automation_task_update": "Update an existing task's title, prompt, run time, and recurrence",
+    "automation_task_delete": "Delete an automation task together with its run history",
+    "automation_task_toggle": "Enable or pause an automation task",
+    "automation_task_run_now": "Run an automation task once right now without changing its schedule",
+    "automation_task_preview": "Preview the next run times of a task",
+    "automation_run_list": "List the run history and results of automation tasks"
+  },
   "automation": {
     "tabTasks": "Tasks",
     "tabHistory": "History",
@@ -105,6 +115,21 @@
     "confirmDeleteTask": "Delete this task? Related history will also be deleted.",
     "confirmDeleteRun": "Delete this history? The related conversation will also be deleted.",
     "confirmClearRuns": "Clear all history? Related conversations will also be deleted.",
+    "runConversationTitle": "Automation-{{title}}-{{time}}",
+    "notifyCompleted": "Automation task completed: {{title}}",
+    "notifyFailed": "Automation task failed: {{title}}",
+    "notifyDuration": "Took {{seconds}}s",
+    "notifyError": "Error: {{error}}",
+    "unknownError": "Unknown error",
+    "errors": {
+      "idRequired": "Task ID is required",
+      "titleRequired": "Task title is required",
+      "promptRequired": "Task prompt is required",
+      "employeeRequired": "An executing employee is required",
+      "providerRequired": "A model provider is required",
+      "startAtRequired": "A first run time is required",
+      "taskNotFound": "Task not found"
+    },
     "common": {
       "create": "Create",
       "cancel": "Cancel",

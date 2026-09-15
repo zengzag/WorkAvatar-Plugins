@@ -1833,11 +1833,11 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
                 <Dropdown
                   menu={{
                     items: [
-                      { key: 'meeting_minutes', label: t('voice.minutesTypeMeeting'), icon: <ProfileOutlined /> },
-                      { key: 'summary', label: t('voice.minutesTypeSummary'), icon: <FileTextOutlined /> },
-                      { key: 'action_items', label: t('voice.minutesTypeAction'), icon: <CheckCircleOutlined /> },
+                      { key: 'meeting_minutes', label: t('voice.minutesType_meeting_minutes'), icon: <ProfileOutlined /> },
+                      { key: 'summary', label: t('voice.minutesType_summary'), icon: <FileTextOutlined /> },
+                      { key: 'action_items', label: t('voice.minutesType_action_items'), icon: <CheckCircleOutlined /> },
                       { type: 'divider' as const },
-                      { key: 'custom', label: t('voice.minutesTypeCustom'), icon: <EditOutlined /> },
+                      { key: 'custom', label: t('voice.minutesType_custom'), icon: <EditOutlined /> },
                     ],
                     onClick: ({ key }) => {
                       if (key === 'custom') {

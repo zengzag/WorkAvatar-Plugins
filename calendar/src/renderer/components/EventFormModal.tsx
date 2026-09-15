@@ -143,7 +143,7 @@ const EventFormModal: React.FC<EventFormModalProps> = ({
         message.error(result.error)
       }
     } catch (err: any) {
-      message.error(err?.message || 'Failed to save event')
+      message.error(err?.message || t('calendar.saveEventFailed'))
     }
   }
 
@@ -170,7 +170,7 @@ const EventFormModal: React.FC<EventFormModalProps> = ({
         message.error(result.error)
       }
     } catch (err: any) {
-      message.error(err?.message || 'Failed to delete event')
+      message.error(err?.message || t('calendar.deleteEventFailed'))
     }
   }
 

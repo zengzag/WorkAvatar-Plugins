@@ -28,8 +28,10 @@ const SETTINGS_KEY = 'data-model-settings'
 
 class ProjectStore {
   private db: PluginDatabase | null = null
+  private ctx: PluginContext | null = null
 
   init(ctx: PluginContext): void {
+    this.ctx = ctx
     this.db = ctx.storage.openSqlite('index')
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS dm_projects (
@@ -141,7 +143,7 @@ class ProjectStore {
   }
 
   createBlank(name?: string): DataModel {
-    const model = createDataModel({ name: name || '未命名数据模型' })
+    const model = createDataModel({ name: name || this.ctx!.services.i18n.t('defaults.untitledModel') })
     this.save(model)
     return model
   }

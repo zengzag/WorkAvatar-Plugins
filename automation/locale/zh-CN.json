@@ -10,6 +10,16 @@
     "automation_task_preview": "预览未来执行时间",
     "automation_run_list": "列出执行历史"
   },
+  "toolDescriptions": {
+    "automation_task_list": "查询自动化任务，支持按员工、启用状态、标签与关键词筛选",
+    "automation_task_create": "创建定时自动化任务：按设定时间由数字员工执行提示词",
+    "automation_task_update": "修改已有自动化任务的标题、提示词、执行时间与重复规则",
+    "automation_task_delete": "删除自动化任务及其执行历史",
+    "automation_task_toggle": "启用或暂停自动化任务",
+    "automation_task_run_now": "立即执行一次自动化任务（不影响后续定时计划）",
+    "automation_task_preview": "预览任务未来几次的执行时间",
+    "automation_run_list": "查询自动化任务的执行历史与结果"
+  },
   "automation": {
     "tabTasks": "自动化任务",
     "tabHistory": "执行历史",
@@ -105,6 +115,21 @@
     "confirmDeleteTask": "确定删除该任务？关联的执行历史也会被一并删除",
     "confirmDeleteRun": "确定删除该执行历史？对应的对话也会被删除",
     "confirmClearRuns": "确定清空全部执行历史？关联的对话也会被删除",
+    "runConversationTitle": "自动化-{{title}}-{{time}}",
+    "notifyCompleted": "自动化任务完成：{{title}}",
+    "notifyFailed": "自动化任务失败：{{title}}",
+    "notifyDuration": "耗时 {{seconds}} 秒",
+    "notifyError": "错误：{{error}}",
+    "unknownError": "未知错误",
+    "errors": {
+      "idRequired": "缺少任务 ID",
+      "titleRequired": "缺少任务标题",
+      "promptRequired": "缺少任务提示词",
+      "employeeRequired": "缺少执行员工",
+      "providerRequired": "缺少模型供应商",
+      "startAtRequired": "缺少首次运行时间",
+      "taskNotFound": "任务不存在"
+    },
     "common": {
       "create": "新建",
       "cancel": "取消",

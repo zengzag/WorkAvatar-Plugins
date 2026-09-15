@@ -72,10 +72,6 @@
     "minutesStreamingHint": "AI is generating minutes, please wait...",
     "minutes": "Meeting Minutes",
     "copyMinutes": "Copy Minutes",
-    "minutesTypeMeeting": "Meeting Minutes",
-    "minutesTypeSummary": "Summary",
-    "minutesTypeAction": "Action Items",
-    "minutesTypeCustom": "Custom",
     "minutesType_meeting_minutes": "Meeting Minutes",
     "minutesType_summary": "Summary",
     "minutesType_action_items": "Action Items",
@@ -151,5 +147,35 @@
     "preparingModel": "Preparing recognition model...",
     "manualNotes": "Manual Notes",
     "notesPlaceholder": "Take meeting notes and key points here..."
+  },
+  "errors": {
+    "localModelUnavailable": "Built-in model unavailable",
+    "builtinModelDirMissing": "Built-in model directory not found: {{path}}",
+    "builtinModelFileMissing": "Missing model file: {{file}}",
+    "builtinModelFilesMissing": "Built-in model files missing: {{files}}",
+    "realtimeLocalModeOnly": "Realtime recognition is only available in local mode. Please switch to local recognition in settings.",
+    "realtimeStreamingOnly": "Realtime recognition requires a streaming model (streaming zipformer). Please switch models or transcribe after recording.",
+    "noMinutesModel": "No LLM model configured for meeting minutes generation. Please configure one in settings.",
+    "transcribeFailed": "Transcription failed: {{error}}",
+    "minutesFailed": "Failed to generate minutes: {{error}}",
+    "aiEmptyResponse": "AI returned no content"
+  },
+  "progress": {
+    "uploadingAudio": "Uploading audio for recognition...",
+    "processingResult": "Processing recognition results...",
+    "transcribeCompleted": "Speech recognition completed",
+    "transcribeCancelled": "Transcription cancelled",
+    "minutesCancelled": "Minutes generation cancelled",
+    "cancelled": "Cancelled",
+    "preparingMinutes": "Preparing meeting minutes generation...",
+    "analyzingTranscript": "AI is analyzing the transcript...",
+    "generatingMinutes": "Generating minutes...",
+    "finalizingMinutes": "Finalizing minutes...",
+    "minutesCompleted": "Meeting minutes generated",
+    "realtimeCompleted": "Realtime recognition completed",
+    "loadingAudio": "Loading audio file...",
+    "processingAudio": "Processing audio...",
+    "recognizingSegment": "Recognizing segment {{current}}/{{total}}...",
+    "finalizingTranscript": "Finalizing transcript..."
   }
 }

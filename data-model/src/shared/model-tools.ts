@@ -23,6 +23,7 @@ export interface ToolExecResult<T = unknown> {
 }
 
 export interface ToolContext {
+  /** name 省略时由主进程按当前语言补默认名 */
   parseDbml?: (dbml: string, name?: string) => DataModel
   readFile?: (path: string) => string
   writeFile?: (path: string, content: string) => void
@@ -150,7 +151,7 @@ function normalizeModel(raw: any): DataModel {
 
   return {
     id: raw?.id ?? createId('dm'),
-    name: raw?.name ?? '未命名数据模型',
+    name: raw?.name ?? '',
     databaseType: raw?.databaseType ?? 'generic',
     tables,
     relationships,
@@ -260,7 +261,7 @@ const setModelJsonTool: ToolDef = {
     }
     if (args.mode === 'merge') return mergeModel(model, incoming)
     const normalized = normalizeModel(incoming)
-    // LLM 生成的 JSON 常省略 model 级 name，此时保留当前模型名，避免被"未命名数据模型"默认值覆盖
+    // LLM 生成的 JSON 常省略 model 级 name，此时保留当前模型名（normalizeModel 的兜底为空名）
     const hasName = typeof incoming.name === 'string' && incoming.name.trim() !== ''
     const replaced: DataModel = {
       ...normalized,
@@ -517,7 +518,7 @@ const importDbmlFileTool: ToolDef = {
     }
     let imported: DataModel
     try {
-      imported = ctx.parseDbml(content, 'DBML 文件导入')
+      imported = ctx.parseDbml(content)
     } catch (e) {
       return { model, result: err(`DBML 解析失败: ${e instanceof Error ? e.message : String(e)}`) }
     }

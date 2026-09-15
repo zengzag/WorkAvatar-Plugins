@@ -79,6 +79,7 @@ function broadcastDataChanged(ctx: PluginContext, scope: 'task' | 'run' | 'setti
 
 function registerIpc(ctx: PluginContext): void {
   const service = getAutomationService(ctx)
+  const t = (key: string) => ctx.services.i18n.t(key)
 
   // ====== 任务 CRUD ======
 
@@ -87,16 +88,16 @@ function registerIpc(ctx: PluginContext): void {
   })
 
   ctx.ipc.handle('get-task', (id: string) => {
-    if (!id) return { error: 'id 必填' }
+    if (!id) return { error: t('automation.errors.idRequired') }
     return service.getTask(id)
   })
 
   ctx.ipc.handle('create-task', (input: any) => {
-    if (!input?.title?.trim()) return { error: 'title 必填' }
-    if (!input?.prompt?.trim()) return { error: 'prompt 必填' }
-    if (!input?.employee_id) return { error: 'employee_id 必填' }
-    if (!input?.provider_id) return { error: 'provider_id 必填' }
-    if (typeof input?.start_at !== 'number') return { error: 'start_at 必填' }
+    if (!input?.title?.trim()) return { error: t('automation.errors.titleRequired') }
+    if (!input?.prompt?.trim()) return { error: t('automation.errors.promptRequired') }
+    if (!input?.employee_id) return { error: t('automation.errors.employeeRequired') }
+    if (!input?.provider_id) return { error: t('automation.errors.providerRequired') }
+    if (typeof input?.start_at !== 'number') return { error: t('automation.errors.startAtRequired') }
     try {
       const task = service.createTask(input)
       broadcastDataChanged(ctx, 'task')
@@ -107,7 +108,7 @@ function registerIpc(ctx: PluginContext): void {
   })
 
   ctx.ipc.handle('update-task', (input: any) => {
-    if (!input?.id) return { error: 'id 必填' }
+    if (!input?.id) return { error: t('automation.errors.idRequired') }
     try {
       const task = service.updateTask(input)
       if (task) broadcastDataChanged(ctx, 'task')
@@ -118,7 +119,7 @@ function registerIpc(ctx: PluginContext): void {
   })
 
   ctx.ipc.handle('delete-task', async (params: any) => {
-    if (!params?.id) return { error: 'id 必填' }
+    if (!params?.id) return { error: t('automation.errors.idRequired') }
     try {
       const ok = await service.deleteTask(params.id)
       if (ok) broadcastDataChanged(ctx, 'task')
@@ -129,7 +130,7 @@ function registerIpc(ctx: PluginContext): void {
   })
 
   ctx.ipc.handle('toggle-task', (params: any) => {
-    if (!params?.id) return { error: 'id 必填' }
+    if (!params?.id) return { error: t('automation.errors.idRequired') }
     const task = service.toggleTask(params.id, params.enabled)
     if (task) broadcastDataChanged(ctx, 'task')
     return task
@@ -138,7 +139,7 @@ function registerIpc(ctx: PluginContext): void {
   // ====== 执行 ======
 
   ctx.ipc.handle('run-now', async (params: any) => {
-    if (!params?.id) return { error: 'id 必填' }
+    if (!params?.id) return { error: t('automation.errors.idRequired') }
     try {
       const run = await service.runTask(params.id, 'manual')
       broadcastDataChanged(ctx, 'run')
@@ -150,9 +151,9 @@ function registerIpc(ctx: PluginContext): void {
   })
 
   ctx.ipc.handle('preview-runs', (params: any) => {
-    if (!params?.task_id) return { error: 'task_id 必填' }
+    if (!params?.task_id) return { error: t('automation.errors.idRequired') }
     const task = service.getTask(params.task_id)
-    if (!task) return { error: '任务不存在' }
+    if (!task) return { error: t('automation.errors.taskNotFound') }
     const count = Math.max(1, Math.min(10, params.count ?? 5))
     const runs = service.previewNextRuns(task, count)
     return { runs }
@@ -165,7 +166,7 @@ function registerIpc(ctx: PluginContext): void {
   })
 
   ctx.ipc.handle('delete-run', async (params: any) => {
-    if (!params?.id) return { error: 'id 必填' }
+    if (!params?.id) return { error: t('automation.errors.idRequired') }
     try {
       const ok = await service.deleteRun(params.id)
       if (ok) broadcastDataChanged(ctx, 'run')

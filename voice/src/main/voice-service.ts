@@ -384,7 +384,7 @@ class VoiceService {
 
       if (isApi) {
         // API 模式：调用远程 Whisper 兼容 API
-        this.notifyProgress(taskId, 'transcribing', '正在上传音频进行语音识别...', 10)
+        this.notifyProgress(taskId, 'transcribing', this.ctx.services.i18n.t('progress.uploadingAudio'), 10)
 
         const config = settings.apiConfig
         const formData = new FormData()
@@ -415,7 +415,7 @@ class VoiceService {
         }
 
         const data = await response.json() as any
-        this.notifyProgress(taskId, 'transcribing', '正在处理识别结果...', 90)
+        this.notifyProgress(taskId, 'transcribing', this.ctx.services.i18n.t('progress.processingResult'), 90)
 
         if (data.text) transcript = data.text
         if (data.segments && Array.isArray(data.segments)) {
@@ -431,12 +431,12 @@ class VoiceService {
         // 本地模式：使用内置流式 Zipformer 模型
         const localConfig = settings.localConfig
 
-        this.notifyProgress(taskId, 'transcribing', '正在加载本地语音识别模型...', 5)
+        this.notifyProgress(taskId, 'transcribing', this.ctx.services.i18n.t('voice.localModelLoading'), 5)
 
         const localSTT = LocalSTTService.getInstance()
         const status = localSTT.checkBuiltinModel()
         if (!status.available) {
-          throw new Error(status.error || '内置模型不可用')
+          throw new Error(status.error || this.ctx.services.i18n.t('errors.localModelUnavailable'))
         }
 
         const result = await localSTT.transcribe(
@@ -464,17 +464,17 @@ class VoiceService {
         sttModel,
       })
 
-      this.notifyProgress(taskId, 'done', '语音识别完成', 100)
+      this.notifyProgress(taskId, 'done', this.ctx.services.i18n.t('progress.transcribeCompleted'), 100)
       return updated
     } catch (err: any) {
       if (err.name === 'AbortError' || err.message === 'Aborted') {
-        this.updateTask({ id: taskId, status: 'recorded', errorMessage: '已取消识别' })
-        this.notifyProgress(taskId, 'cancelled', '已取消', 0)
+        this.updateTask({ id: taskId, status: 'recorded', errorMessage: this.ctx.services.i18n.t('progress.transcribeCancelled') })
+        this.notifyProgress(taskId, 'cancelled', this.ctx.services.i18n.t('progress.cancelled'), 0)
       } else {
         const msg = String(err?.message || err)
         this.logger.error('Transcribe failed:', msg)
         this.updateTask({ id: taskId, status: 'failed', errorMessage: msg })
-        this.notifyProgress(taskId, 'error', `识别失败: ${msg}`, 0)
+        this.notifyProgress(taskId, 'error', this.ctx.services.i18n.t('errors.transcribeFailed', { error: msg }), 0)
       }
       return this.getTask(taskId)
     } finally {
@@ -498,7 +498,7 @@ class VoiceService {
 
     const settings = this.getSettings()
     if (!settings.minutesModel?.provider_id) {
-      throw new Error('未配置会议纪要生成模型，请在设置中配置 LLM 模型')
+      throw new Error(this.ctx.services.i18n.t('errors.noMinutesModel'))
     }
 
     const llmConfig = settings.minutesModel
@@ -508,14 +508,14 @@ class VoiceService {
     const controller = new AbortController()
     this.minutesAbortControllers.set(taskId, controller)
 
-    this.notifyProgress(taskId, 'generating_minutes', '正在准备会议纪要生成...', 10)
+    this.notifyProgress(taskId, 'generating_minutes', this.ctx.services.i18n.t('progress.preparingMinutes'), 10)
 
     try {
       const prompt = this.buildMinutesPrompt(minutesType, customPrompt)
       const systemPrompt = prompt
       const userMessage = this.formatTranscriptForLLM(task)
 
-      this.notifyProgress(taskId, 'generating_minutes', 'AI 正在分析转录文本...', 25)
+      this.notifyProgress(taskId, 'generating_minutes', this.ctx.services.i18n.t('progress.analyzingTranscript'), 25)
 
       // 流式生成：每收到一个 chunk 即推送进度，progress 在 30~90 之间渐进
       let accumulated = ''
@@ -537,7 +537,7 @@ class VoiceService {
             this.notifyProgress(
               taskId,
               'generating_minutes',
-              '正在生成纪要内容...',
+              this.ctx.services.i18n.t('progress.generatingMinutes'),
               Math.round(estimated),
               chunk,
               accumulated,
@@ -550,11 +550,11 @@ class VoiceService {
       )
 
       // 流式结束，标记进度 95 等待最终入库
-      this.notifyProgress(taskId, 'generating_minutes', '正在整理纪要内容...', 95, undefined, accumulated)
+      this.notifyProgress(taskId, 'generating_minutes', this.ctx.services.i18n.t('progress.finalizingMinutes'), 95, undefined, accumulated)
 
       const finalText = accumulated.trim()
       if (!finalText) {
-        throw new Error('AI 未返回任何内容')
+        throw new Error(this.ctx.services.i18n.t('errors.aiEmptyResponse'))
       }
 
       const updated = this.updateTask({
@@ -564,17 +564,17 @@ class VoiceService {
         minutesType,
       })
 
-      this.notifyProgress(taskId, 'done', '会议纪要生成完成', 100, undefined, finalText)
+      this.notifyProgress(taskId, 'done', this.ctx.services.i18n.t('progress.minutesCompleted'), 100, undefined, finalText)
       return updated
     } catch (err: any) {
       if (err.name === 'AbortError') {
-        this.updateTask({ id: taskId, status: 'transcribed', errorMessage: '已取消生成' })
-        this.notifyProgress(taskId, 'cancelled', '已取消', 0)
+        this.updateTask({ id: taskId, status: 'transcribed', errorMessage: this.ctx.services.i18n.t('progress.minutesCancelled') })
+        this.notifyProgress(taskId, 'cancelled', this.ctx.services.i18n.t('progress.cancelled'), 0)
       } else {
         const msg = String(err?.message || err)
         this.logger.error('Generate minutes failed:', msg)
         this.updateTask({ id: taskId, status: 'transcribed', errorMessage: msg })
-        this.notifyProgress(taskId, 'error', `纪要生成失败: ${msg}`, 0)
+        this.notifyProgress(taskId, 'error', this.ctx.services.i18n.t('errors.minutesFailed', { error: msg }), 0)
       }
       return this.getTask(taskId)
     } finally {
@@ -714,14 +714,14 @@ ${correctionNote}
   startRealtime(taskId: string, language?: string): { ok: boolean; error?: string } {
     const settings = this.getSettings()
     if (settings.sttMode !== 'local') {
-      return { ok: false, error: '实时识别仅支持本地模式，请在设置中切换为本地识别' }
+      return { ok: false, error: this.ctx.services.i18n.t('errors.realtimeLocalModeOnly') }
     }
 
     const localConfig = settings.localConfig
     const localSTT = LocalSTTService.getInstance()
     const status = localSTT.checkBuiltinModel()
     if (!status.available) {
-      return { ok: false, error: status.error || '内置模型不可用' }
+      return { ok: false, error: status.error || this.ctx.services.i18n.t('errors.localModelUnavailable') }
     }
 
     const lang = language || localConfig.language || 'zh'
@@ -850,7 +850,7 @@ ${correctionNote}
     }
     this.ctx.ipc.broadcast('realtime-result', realtimeResult)
 
-    this.notifyProgress(taskId, 'done', '实时识别完成', 100)
+    this.notifyProgress(taskId, 'done', this.ctx.services.i18n.t('progress.realtimeCompleted'), 100)
 
     // 清空悬浮字幕
     SubtitleWindowService.getInstance().updateText('', 'mic')
@@ -902,7 +902,7 @@ ${correctionNote}
     }
     this.ctx.ipc.broadcast('realtime-result', realtimeResult)
 
-    this.notifyProgress(params.mainTaskId, 'done', '实时识别完成', 100)
+    this.notifyProgress(params.mainTaskId, 'done', this.ctx.services.i18n.t('progress.realtimeCompleted'), 100)
 
     // 清理临时存储
     this.dualSourceTranscripts.delete(params.micTaskId)

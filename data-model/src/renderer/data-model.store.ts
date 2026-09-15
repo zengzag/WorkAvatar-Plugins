@@ -875,7 +875,7 @@ function createSampleModel(): DataModel {
   const postFk = comments.fields.find((f) => f.name === 'post_id')!.id
   const commentUserFk = comments.fields.find((f) => f.name === 'user_id')!.id
   const model = createDataModel({
-    name: '示例博客模型',
+    name: hostT('defaults.sampleModel'),
     tables: [users, posts, comments],
     relationships: [
       createRelationship({ sourceTableId: users.id, sourceFieldId: userId, targetTableId: posts.id, targetFieldId: userFk, sourceCardinality: 'one', targetCardinality: 'many' }),

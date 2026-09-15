@@ -229,11 +229,12 @@ class AutomationService {
   }
 
   createTask(input: CreateAutomationTaskInput): AutomationTask {
-    if (!input.title?.trim()) throw new Error('title 必填')
-    if (!input.prompt?.trim()) throw new Error('prompt 必填')
-    if (!input.employee_id) throw new Error('employee_id 必填')
-    if (!input.provider_id) throw new Error('provider_id 必填')
-    if (typeof input.start_at !== 'number') throw new Error('start_at 必填')
+    const t = (key: string) => this.ctx.services.i18n.t(key)
+    if (!input.title?.trim()) throw new Error(t('automation.errors.titleRequired'))
+    if (!input.prompt?.trim()) throw new Error(t('automation.errors.promptRequired'))
+    if (!input.employee_id) throw new Error(t('automation.errors.employeeRequired'))
+    if (!input.provider_id) throw new Error(t('automation.errors.providerRequired'))
+    if (typeof input.start_at !== 'number') throw new Error(t('automation.errors.startAtRequired'))
 
     const id = generateId()
     const now = Math.floor(Date.now() / 1000)
@@ -671,7 +672,7 @@ class AutomationService {
   private async executeOnce(task: AutomationTask, triggeredBy: AutomationTriggeredBy, attempt: number): Promise<AutomationRun> {
     const now = Math.floor(Date.now() / 1000)
     const titleTime = this.formatRunTitleTime(now)
-    const convTitle = `自动化-${task.title}-${titleTime}`
+    const convTitle = this.ctx.services.i18n.t('automation.runConversationTitle', { title: task.title, time: titleTime })
 
     let conv: any = null
     let runId: string | null = null
@@ -875,10 +876,13 @@ class AutomationService {
     employeeId?: string,
   ): void {
     try {
-      const title = result === 'success' ? `自动化任务完成：${task.title}` : `自动化任务失败：${task.title}`
+      const i18n = this.ctx.services.i18n
+      const title = result === 'success'
+        ? i18n.t('automation.notifyCompleted', { title: task.title })
+        : i18n.t('automation.notifyFailed', { title: task.title })
       const body = result === 'success'
-        ? `耗时 ${(durationMs / 1000).toFixed(1)} 秒`
-        : `错误：${error || '未知错误'}`
+        ? i18n.t('automation.notifyDuration', { seconds: (durationMs / 1000).toFixed(1) })
+        : i18n.t('automation.notifyError', { error: error || i18n.t('automation.unknownError') })
       const clickId = JSON.stringify({ conversationId, employeeId })
       this.ctx.services.notification!.notify({
         title,
@@ -886,6 +890,12 @@ class AutomationService {
         clickTarget: 'automation',
         clickId,
         source: 'automation',
+        // 主窗口激活时的 antd 通知按当前语言二次本地化（系统通知已在上方本地化）
+        i18nTitleKey: result === 'success' ? 'automation.notifyCompleted' : 'automation.notifyFailed',
+        i18nKey: result === 'success' ? 'automation.notifyDuration' : 'automation.notifyError',
+        i18nParams: result === 'success'
+          ? { title: task.title, seconds: (durationMs / 1000).toFixed(1) }
+          : { title: task.title, error: error || i18n.t('automation.unknownError') },
       })
     } catch { /* ignore */ }
   }

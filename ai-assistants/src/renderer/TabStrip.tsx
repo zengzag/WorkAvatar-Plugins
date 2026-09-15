@@ -5,7 +5,7 @@
 import { Dropdown } from 'antd'
 import { CloseOutlined, PlusOutlined } from '@ant-design/icons'
 import { getSiteById, type AiWebSite, type AiWebTab } from '../shared/sites'
-import { t, popupContainer } from './host'
+import { t, siteName, popupContainer } from './host'
 
 export interface TabStripProps {
   tabs: AiWebTab[]
@@ -24,7 +24,7 @@ export function TabStrip({ tabs, activeTabId, sites, onActivate, onClose, onOpen
       label: (
         <span className="aiweb-menu-item">
           <span className="aiweb-dot" style={{ background: site.color }} />
-          {site.name}
+          {siteName(site)}
         </span>
       ),
     })),

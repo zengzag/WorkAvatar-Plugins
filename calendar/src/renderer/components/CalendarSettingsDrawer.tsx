@@ -88,7 +88,7 @@ const CalendarSettingsDrawer: React.FC<CalendarSettingsDrawerProps> = ({
       const result = await cal.outlook.logout()
       if (result && !result.error) setOutlook(result as OutlookSyncStatus)
     } catch (err: any) {
-      message.error(err?.message || 'Failed to log out')
+      message.error(err?.message || t('calendar.logoutFailed'))
     }
   }, [message])
 
@@ -98,7 +98,7 @@ const CalendarSettingsDrawer: React.FC<CalendarSettingsDrawerProps> = ({
       if (result?.error) message.error(result.error)
       else if (result) setOutlook(result as OutlookSyncStatus)
     } catch (err: any) {
-      message.error(err?.message || 'Failed to save')
+      message.error(err?.message || t('calendar.saveFailed'))
     }
   }, [message])
 
@@ -181,7 +181,7 @@ const CalendarSettingsDrawer: React.FC<CalendarSettingsDrawerProps> = ({
       }
       return result
     } catch (err: any) {
-      message.error(err?.message || 'Failed to save settings')
+      message.error(err?.message || t('calendar.saveSettingsFailed'))
     } finally {
       setSaving(false)
     }

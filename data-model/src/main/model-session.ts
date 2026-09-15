@@ -68,7 +68,7 @@ class ModelSession {
     }
     try {
       const { model, result } = tool.execute(this.current, args, {
-        parseDbml: (dbml, n) => importDbml(dbml, n),
+        parseDbml: (dbml, n) => importDbml(dbml, n ?? this.ctx.services.i18n.t('defaults.dbmlImportName')),
         readFile: (p) => fs.readFileSync(resolveWithinTaskRoot(p), 'utf-8'),
         writeFile: (p, content) => fs.writeFileSync(resolveWithinTaskRoot(p), content, 'utf-8')
       })

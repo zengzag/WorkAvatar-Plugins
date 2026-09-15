@@ -30,5 +30,14 @@
   "settings.moveUp": "上移",
   "settings.moveDown": "下移",
   "settings.sitesNote": "站点清单随插件内置，受宿主域名白名单约束，暂不支持自行添加网址。",
-  "settings.reset": "恢复默认设置"
+  "settings.reset": "恢复默认设置",
+  "site.doubao": "豆包",
+  "site.deepseek": "DeepSeek",
+  "site.kimi": "Kimi",
+  "site.qwen": "通义千问",
+  "site.chatglm": "智谱清言",
+  "site.ernie": "文心一言",
+  "site.yuanbao": "腾讯元宝",
+  "site.metaso": "秘塔",
+  "site.spark": "讯飞星火"
 }

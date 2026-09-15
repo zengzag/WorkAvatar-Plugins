@@ -37,6 +37,7 @@ class CalendarScheduler {
     try {
       const now = Math.floor(Date.now() / 1000)
       const calendar = getCalendarService(this.ctx)
+      const i18n = this.ctx.services.i18n
       const due = calendar.listDueReminders(now)
       if (due.length === 0) return
 
@@ -44,22 +45,25 @@ class CalendarScheduler {
 
       for (const reminder of due) {
         const payload = reminder.payload || {}
-        const title = payload.title || '日历提醒'
+        const title = payload.title || i18n.t('calendar.reminderDefaultTitle')
         const body = payload.body || ''
         // 通知发送失败不得中断循环：否则 markReminderFired 不执行，
         // 该提醒及后续到期提醒会留在队列每 30s 重放
         try {
+          const notifyPayload = {
+            title,
+            body,
+            clickTarget: payload.clickTarget,
+            clickId: payload.clickId,
+            // 渲染端与系统通知按当前语言本地化正文（插件 locale 的 calendar.* 文案键）
+            i18nKey: payload.i18nKey,
+            i18nParams: payload.i18nParams,
+          }
           // 用户禁用系统通知时，仍走 IPC 广播（前端弹 antd notification）
           if (!settings.enable_system_notification) {
-            this.ctx.ipc.broadcast('notify', { title, body, clickTarget: payload.clickTarget, clickId: payload.clickId, source: 'calendar' })
+            this.ctx.ipc.broadcast('notify', { ...notifyPayload, source: 'calendar' })
           } else {
-            this.ctx.services.notification!.notify({
-              title,
-              body,
-              clickTarget: payload.clickTarget,
-              clickId: payload.clickId,
-              source: 'calendar',
-            })
+            this.ctx.services.notification!.notify({ ...notifyPayload, source: 'calendar' })
           }
         } catch (err: any) {
           this.ctx.services.logger.warn(`notify failed for reminder ${reminder.id}:`, err?.message || err)

@@ -73,6 +73,9 @@ function isWithinTaskRoot(p: string): boolean {
 }
 
 function registerIpc(ctx: PluginContext): void {
+  // 返回渲染端的文案按当前应用语言本地化（渲染端直接展示或经 hostT 透传）
+  const t = (key: string, params?: Record<string, string | number>) => ctx.services.i18n.t(key, params)
+
   // ====== 项目 ======
   ctx.ipc.handle('project-list', () => projectStore.list())
 
@@ -84,23 +87,23 @@ function registerIpc(ctx: PluginContext): void {
 
   ctx.ipc.handle('project-open', (payload: any) => {
     const id = payload?.id
-    if (!id) return { error: '缺少项目 id' }
+    if (!id) return { error: t('errors.missingProjectId') }
     const rec = projectStore.get(id)
-    if (!rec) return { error: '项目不存在' }
+    if (!rec) return { error: t('errors.projectNotFound') }
     modelSession.setModel(rec.model, null)
     return { model: rec.model }
   })
 
   ctx.ipc.handle('project-delete', (payload: any) => {
     const id = payload?.id
-    if (!id) return { error: '缺少项目 id' }
+    if (!id) return { error: t('errors.missingProjectId') }
     projectStore.delete(id)
     return { ok: true }
   })
 
   ctx.ipc.handle('project-save', () => {
     const model = modelSession.getModel()
-    if (!model) return { error: '当前无数据模型' }
+    if (!model) return { error: t('errors.noModel') }
     projectStore.save(model)
     return { ok: true }
   })
@@ -108,7 +111,7 @@ function registerIpc(ctx: PluginContext): void {
   ctx.ipc.handle('project-rename', (payload: any) => {
     const id = payload?.id
     const name = payload?.name
-    if (!id || typeof name !== 'string' || !name.trim()) return { error: '缺少项目名称' }
+    if (!id || typeof name !== 'string' || !name.trim()) return { error: t('errors.missingProjectName') }
     const trimmed = name.trim()
     projectStore.rename(id, trimmed)
     const model = modelSession.getModel()
@@ -123,29 +126,29 @@ function registerIpc(ctx: PluginContext): void {
   ctx.ipc.handle('model-get', () => ({ model: modelSession.getModel() }))
 
   ctx.ipc.handle('model-sync', (payload: any) => {
-    if (!payload?.model) return { error: '缺少模型' }
+    if (!payload?.model) return { error: t('errors.missingModel') }
     modelSession.setModel(payload.model)
     return { ok: true }
   })
 
   // ====== DBML ======
   ctx.ipc.handle('dbml-import', (payload: any) => {
-    if (!payload?.dbml) return { error: '缺少 DBML 文本' }
+    if (!payload?.dbml) return { error: t('errors.missingDbml') }
     try {
-      const model = importDbml(payload.dbml, payload.name ?? 'DBML 导入')
+      const model = importDbml(payload.dbml, payload.name ?? t('defaults.dbmlImportName'))
       return { model }
     } catch (e) {
       const err = e as any
       const diag = Array.isArray(err?.diags) && err.diags.length > 0
         ? err.diags.map((d: any) => d.message).join('; ')
         : (err?.message ?? String(e))
-      return { error: `DBML 解析失败: ${diag}` }
+      return { error: t('errors.dbmlParseFailed', { message: diag }) }
     }
   })
 
   ctx.ipc.handle('dbml-export', () => {
     const model = modelSession.getModel()
-    if (!model) return { error: '当前无数据模型' }
+    if (!model) return { error: t('errors.noModel') }
     return { dbml: exportDbml(model) }
   })
 
@@ -176,12 +179,12 @@ function registerIpc(ctx: PluginContext): void {
   // ====== 项目导出 / 导入（.dmv.json 文件） ======
   ctx.ipc.handle('project-export-file', async (payload: any) => {
     const model = payload?.model
-    if (!model) return { error: '当前无数据模型' }
+    if (!model) return { error: t('errors.noModel') }
     const { dialog } = require('electron')
     const res = await dialog.showSaveDialog({
-      title: '导出数据模型',
+      title: t('dialog.exportModel'),
       defaultPath: `${model.name || 'model'}.dmv.json`,
-      filters: [{ name: '数据模型文件', extensions: ['dmv.json', 'json'] }]
+      filters: [{ name: t('dialog.modelFileFilter'), extensions: ['dmv.json', 'json'] }]
     })
     if (res.canceled || !res.filePath) return { ok: false }
     const fs = require('fs')
@@ -192,30 +195,31 @@ function registerIpc(ctx: PluginContext): void {
   ctx.ipc.handle('project-import-file', async () => {
     const { dialog } = require('electron')
     const res = await dialog.showOpenDialog({
-      title: '导入数据模型',
+      title: t('dialog.importModel'),
       properties: ['openFile'],
-      filters: [{ name: '数据模型文件', extensions: ['dmv.json', 'json'] }]
+      filters: [{ name: t('dialog.modelFileFilter'), extensions: ['dmv.json', 'json'] }]
     })
-    if (res.canceled || !res.filePaths[0]) return { error: '已取消' }
+    // 用户取消：渲染端仅据 model 判定结果，无需错误文案
+    if (res.canceled || !res.filePaths[0]) return {}
     const fs = require('fs')
     try {
       const raw = JSON.parse(fs.readFileSync(res.filePaths[0], 'utf-8'))
       const model = raw?.model ?? raw
-      if (!model?.tables || !model?.id) return { error: '文件格式不正确' }
+      if (!model?.tables || !model?.id) return { error: t('errors.invalidFileFormat') }
       projectStore.save(model)
       modelSession.setModel(model, null)
       return { model }
     } catch (e) {
-      return { error: `导入失败: ${e instanceof Error ? e.message : String(e)}` }
+      return { error: t('errors.importFailed', { message: e instanceof Error ? e.message : String(e) }) }
     }
   })
 
   // ====== 对话（复用宿主通用对话引擎，不绑定员工） ======
   ctx.ipc.handle('chat-send', async (payload: any, signal?: AbortSignal) => {
     const execute = ctx.services.execute
-    if (!execute) return { error: '宿主未提供 execute 能力' }
+    if (!execute) return { error: t('errors.executeUnavailable') }
     const { providerId, modelId, messages, conversationId } = payload ?? {}
-    if (!messages || messages.length === 0) return { error: '缺少 messages' }
+    if (!messages || messages.length === 0) return { error: t('errors.missingMessages') }
 
     // 解析 provider：显式传入 > 插件默认 > 宿主默认 provider > 首个 provider
     let resolvedProviderId = providerId
@@ -325,7 +329,7 @@ function registerIpc(ctx: PluginContext): void {
         const hasUser = existing.some((m) => (m as any).role === 'user' && (m as any).content === userMsg.content)
         await persist(lastConvId, [...(hasUser ? existing : [...existing, userMsg]), assistantMsg])
         // 记录数据模型对话（供历史列表）
-        const title = lastMsg?.content?.slice(0, 40) || '数据模型对话'
+        const title = lastMsg?.content?.slice(0, 40) || t('chat.defaultTitle')
         projectStore.saveChat({ conversationId: lastConvId, title, updatedAt: Date.now(), workspacePath })
         broadcast('chats-changed', { ts: Date.now() })
       }
@@ -343,7 +347,7 @@ function registerIpc(ctx: PluginContext): void {
 
   ctx.ipc.handle('chat-delete', (payload: any) => {
     const convId = payload?.conversationId
-    if (!convId) return { error: '缺少 conversationId' }
+    if (!convId) return { error: t('errors.missingConversationId') }
     const ws = projectStore.getChatWorkspacePath(convId)
     projectStore.deleteChat(convId)
     broadcast('chats-changed', { ts: Date.now() })
@@ -368,8 +372,8 @@ function registerIpc(ctx: PluginContext): void {
   // 删除对话的任务工作区目录（移至回收站，路径须位于任务根目录内）
   ctx.ipc.handle('chat-delete-task-dir', async (payload: any) => {
     const dir = payload?.path
-    if (!dir) return { ok: false, error: '缺少路径' }
-    if (!isWithinTaskRoot(dir)) return { ok: false, error: '路径不在任务工作区内，拒绝删除' }
+    if (!dir) return { ok: false, error: t('errors.missingPath') }
+    if (!isWithinTaskRoot(dir)) return { ok: false, error: t('errors.pathOutsideWorkspace') }
     if (!fs.existsSync(dir)) return { ok: true }
     const { shell } = require('electron')
     try {
@@ -388,7 +392,7 @@ function registerIpc(ctx: PluginContext): void {
   ctx.ipc.handle('chat-open-dir', (payload: any) => {
     const convId = payload?.conversationId
     const ws = convId ? projectStore.getChatWorkspacePath(convId) : null
-    if (!ws || !fs.existsSync(ws)) return { ok: false, error: '任务工作区不存在' }
+    if (!ws || !fs.existsSync(ws)) return { ok: false, error: t('errors.workspaceNotFound') }
     try {
       const { shell } = require('electron')
       if (shell?.openPath) shell.openPath(ws)
@@ -415,14 +419,14 @@ function registerIpc(ctx: PluginContext): void {
   ctx.ipc.handle('chat-delete-message', (payload: any) => {
     const convId = payload?.conversationId
     const msgId = payload?.msgId
-    if (!convId || !msgId) return { error: '缺少参数' }
+    if (!convId || !msgId) return { error: t('errors.missingParams') }
     const msgs = projectStore.getMessages(convId) as Array<{ id?: string; role?: string; content?: string }>
     let idx = msgs.findIndex((m) => m.id === msgId)
     // 兼容旧数据（无 id 字段）：按 role+content 兜底匹配
     if (idx === -1 && payload?.role && payload?.content !== undefined) {
       idx = msgs.findIndex((m) => m.role === payload.role && m.content === payload.content)
     }
-    if (idx === -1) return { error: '消息不存在' }
+    if (idx === -1) return { error: t('errors.messageNotFound') }
     const next = [...msgs]
     next.splice(idx, 1)
     // 删除用户消息时同步删除紧随其后的助手回复（与宿主任务对话语义一致）

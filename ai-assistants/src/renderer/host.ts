@@ -24,6 +24,12 @@ export function t(key: string, options?: Record<string, unknown>): string {
   return translate(key, options)
 }
 
+/** 站点展示名：取插件 locale 的 `site.<id>`，缺失回退站点内置名称 */
+export function siteName(site: { id: string; name: string } | null | undefined): string {
+  if (!site) return ''
+  return translate(`site.${site.id}`, { defaultValue: site.name })
+}
+
 /**
  * antd 浮层的挂载点：收敛到插件自己的 DOM 内。
  *

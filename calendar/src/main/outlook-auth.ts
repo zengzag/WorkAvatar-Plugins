@@ -140,7 +140,7 @@ class OutlookAuthService {
       return account ?? { id: '', email: '', display_name: '' }
     } catch (err: any) {
       this.ctx.services.logger.error('Login failed:', err?.message)
-      return { error: err?.message || '登录失败' }
+      return { error: err?.message || this.ctx.services.i18n.t('calendar.outlookLoginFailed') }
     }
   }
 
@@ -159,7 +159,7 @@ class OutlookAuthService {
         width: 520,
         height: 700,
         show: false,
-        title: 'Outlook 登录',
+        title: this.ctx.services.i18n.t('calendar.outlookLoginWindowTitle'),
         autoHideMenuBar: true,
         webPreferences: { contextIsolation: true, nodeIntegration: false },
       })
@@ -169,7 +169,7 @@ class OutlookAuthService {
         if (!url.startsWith(REDIRECT_URI)) return
         const params = new URL(url).searchParams
         if (params.get('state') !== state) {
-          finish({ error: 'state 校验失败' })
+          finish({ error: this.ctx.services.i18n.t('calendar.outlookStateMismatch') })
           return
         }
         const error = params.get('error_description') || params.get('error')
@@ -181,9 +181,9 @@ class OutlookAuthService {
       // 授权完成是 302 重定向；SPA 内部导航兜底
       win.webContents.on('will-redirect', (_e, url) => handleUrl(url))
       win.webContents.on('did-navigate', (_e, url) => handleUrl(url))
-      win.on('closed', () => finish({ error: '登录窗口已关闭' }))
+      win.on('closed', () => finish({ error: this.ctx.services.i18n.t('calendar.outlookLoginWindowClosed') }))
 
-      win.loadURL(authUrl).catch(err => finish({ error: err?.message || '无法打开登录页' }))
+      win.loadURL(authUrl).catch(err => finish({ error: err?.message || this.ctx.services.i18n.t('calendar.outlookLoginPageFailed') }))
     })
   }
 
@@ -224,7 +224,7 @@ class OutlookAuthService {
     })
     const json: any = await resp.json().catch(() => ({}))
     if (!resp.ok) {
-      throw new Error(json.error_description || json.error || `token 请求失败 (${resp.status})`)
+      throw new Error(json.error_description || json.error || this.ctx.services.i18n.t('calendar.outlookTokenRequestFailed', { status: resp.status }))
     }
     return {
       access_token: json.access_token,

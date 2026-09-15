@@ -166,11 +166,12 @@ export function createEnumType(partial: Partial<EnumType> = {}): EnumType {
   }
 }
 
-export function createDataModel(partial: Partial<DataModel> = {}): DataModel {
+/** 默认名涉及用户可见文案，由调用方按当前语言传入 */
+export function createDataModel(partial: Partial<DataModel> & { name: string }): DataModel {
   const now = Date.now()
   return {
     id: partial.id ?? createId('dm'),
-    name: partial.name ?? '未命名数据模型',
+    name: partial.name,
     databaseType: partial.databaseType ?? 'generic',
     tables: partial.tables ?? [],
     relationships: partial.relationships ?? [],

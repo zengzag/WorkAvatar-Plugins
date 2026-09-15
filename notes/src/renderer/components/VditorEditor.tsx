@@ -238,7 +238,7 @@ function nodeToMarkdown(node: Node, listIndent = ''): string {
       const src = el.getAttribute('src') || ''
       const alt = el.getAttribute('alt') || ''
       if (!src) return ''
-      return `![${alt || '图片'}](${src})\n`
+      return `![${alt || hostT('imageAltText')}](${src})\n`
     }
     case 'blockquote':
       return `\n> ${children.trim().split('\n').join('\n> ')}\n\n`
@@ -797,7 +797,7 @@ const VditorEditorInner: React.FC<Props> = ({
             try {
               const relPath = await saveImage(arrayBuffer, blob.name || 'pasted-image.png')
               if (relPath) {
-                insertTextAtCursor(`![${blob.name?.replace(/\.[^.]+$/, '') || '图片'}](${relPath})\n`)
+                insertTextAtCursor(`![${blob.name?.replace(/\.[^.]+$/, '') || hostT('imageAltText')}](${relPath})\n`)
               }
             } catch (err) {
               console.error('Save image error:', err)

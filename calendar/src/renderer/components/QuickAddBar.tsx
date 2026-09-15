@@ -101,7 +101,7 @@ const QuickAddBar: React.FC<QuickAddBarProps> = ({ onSubmit }) => {
         Message.error(result.error)
       }
     } catch (err: any) {
-      Message.error(err?.message || 'Failed to save')
+      Message.error(err?.message || t('calendar.saveFailed'))
     } finally {
       setSubmitting(false)
     }

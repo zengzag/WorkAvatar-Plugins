@@ -1102,7 +1102,11 @@ class CalendarService {
             clickTarget: 'event',
             clickId: event.id,
             i18nKey: offsetMin === 0 ? 'calendar.eventStartingNow' : offsetMin < 0 ? 'calendar.eventStartingIn' : 'calendar.eventStarted',
-            i18nParams: { minutes: -offsetMin, time: new Date(inst.instance_start_at * 1000).toISOString() },
+            i18nParams: {
+              minutes: -offsetMin,
+              time: this.formatReminderTime(inst.instance_start_at),
+              location: event.location ? ` · ${event.location}` : '',
+            },
             startAt: inst.instance_start_at,
           })
         )
@@ -1141,7 +1145,7 @@ class CalendarService {
             clickTarget: 'todo',
             clickId: todo.id,
             i18nKey: offsetMin === 0 ? 'calendar.todoDueNow' : offsetMin < 0 ? 'calendar.todoDueIn' : 'calendar.todoOverdue',
-            i18nParams: { minutes: -offsetMin, time: new Date(dueAt * 1000).toISOString() },
+            i18nParams: { minutes: -offsetMin, time: this.formatReminderTime(dueAt) },
             dueAt,
           })
         )
@@ -1629,8 +1633,15 @@ class CalendarService {
     }
   }
 
+  /** 提醒时间显示：固定 MM-DD HH:mm，避免按开发机语言格式化导致展示与界面语言不一致 */
+  private formatReminderTime(unixSec: number): string {
+    const d = new Date(unixSec * 1000)
+    const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`)
+    return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+
   private formatEventReminderBody(event: CalendarEvent, startAt: number, offsetMin: number): string {
-    const time = new Date(startAt * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    const time = this.formatReminderTime(startAt)
     const prefix = offsetMin === 0 ? '即将开始' : offsetMin < 0 ? `${-offsetMin} 分钟后开始` : '已开始'
     let body = `${prefix} · ${time}`
     if (event.location) body += ` · ${event.location}`
@@ -1638,9 +1649,9 @@ class CalendarService {
   }
 
   private formatTodoReminderBody(todo: CalendarTodo, offsetMin: number): string {
-    const time = todo.due_at ? new Date(todo.due_at * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
+    const time = todo.due_at ? this.formatReminderTime(todo.due_at) : ''
     const prefix = offsetMin === 0 ? '已到截止时间' : offsetMin < 0 ? `${-offsetMin} 分钟后到期` : '已过期'
-    return `${prefix}${time ? ' · ' + time : ''}`
+    return time ? `${prefix} · ${time}` : prefix
   }
 
   /** 构建提醒 payload 时同时附带 i18n key 和参数，渲染进程可用 t() 本地化 */

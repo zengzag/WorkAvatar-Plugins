@@ -123,10 +123,11 @@ describe('voice 本地 STT worker 转录', () => {
     expect(result.segments).toHaveLength(1)
     expect(result.segments[0].start).toBe(0)
     expect(result.segments[0].end).toBe(1)
-    // worker 内的进度消息（10 加载 / 20 处理 / 每段识别）经消息协议回传
+    // worker 内的进度消息（10 加载 / 20 处理 / 每段识别）经消息协议回传；
+    // worker 只发 messageKey，由主进程按当前语言解析（mock 的 i18n 按 key 直通）
     expect(progressCalls.some(p => p.progress === 10)).toBe(true)
     expect(progressCalls.some(p => p.progress === 20)).toBe(true)
-    expect(progressCalls.some(p => p.message.includes('Recognizing segment'))).toBe(true)
+    expect(progressCalls.some(p => p.message.includes('progress.recognizingSegment'))).toBe(true)
   }, 20000)
 
   it('信号已中止时直接抛出 Aborted，不启动 worker', async () => {
@@ -166,6 +167,7 @@ describe('voice 本地 STT worker 转录', () => {
     const { default: LocalSTTService } = await loadLocalSTT()
     const svc = LocalSTTService.getInstance(mock.ctx)
 
-    await expect(svc.transcribe(wavPath, LOCAL_CONFIG)).rejects.toThrow(/内置模型文件缺失|sherpa/)
+    // mock 的 ctx.services.i18n 按 key 直通，故此处断言文案 key（真实环境由插件 locale 解析）
+    await expect(svc.transcribe(wavPath, LOCAL_CONFIG)).rejects.toThrow(/errors\.builtinModelFilesMissing|sherpa/)
   }, 20000)
 })

@@ -175,7 +175,7 @@ class OutlookSyncService {
     let syncOk = false
     try {
       const token = await auth.getAccessToken()
-      if (!token) throw new Error('登录已过期，请重新登录 Outlook 账号')
+      if (!token) throw new Error(this.ctx.services.i18n.t('calendar.outlookSessionExpired'))
 
       if (cfg.sync_events) {
         this.calendarId = await this.ensureTargetCalendar(token)
@@ -186,11 +186,11 @@ class OutlookSyncService {
         await this.syncTodos(token, result)
       }
       syncOk = true
-      this.saveState({ last_result: result, last_error: result.failed > 0 ? `${result.failed} 条同步失败` : null })
+      this.saveState({ last_result: result, last_error: result.failed > 0 ? this.ctx.services.i18n.t('calendar.outlookSyncFailedCount', { count: result.failed }) : null })
       this.ctx.services.logger.info(`Sync done: +${result.created} ~${result.updated} -${result.deleted} !${result.failed}`)
     } catch (err: any) {
       this.ctx.services.logger.error('Sync failed:', err?.message)
-      this.saveState({ ...this.loadState(), last_error: err?.message || '同步失败' })
+      this.saveState({ ...this.loadState(), last_error: err?.message || this.ctx.services.i18n.t('calendar.outlookSyncFailed') })
     } finally {
       this.syncing = false
       // 失败（如 token 瞬时失效）时不更新版本指纹：数据未变时下个 tick 会重试同步，
@@ -226,7 +226,7 @@ class OutlookSyncService {
     if (resp.status === 401) {
       // token 失效，刷新后重试一次
       const fresh = await getOutlookAuthService(this.ctx).getAccessToken()
-      if (!fresh) throw new Error('登录已过期，请重新登录 Outlook 账号')
+      if (!fresh) throw new Error(this.ctx.services.i18n.t('calendar.outlookSessionExpired'))
       resp = await doFetch(fresh)
     }
     if (resp.status === 204) return null
@@ -234,7 +234,7 @@ class OutlookSyncService {
     if (!resp.ok) {
       const detail = JSON.stringify(json?.error || json)
       this.ctx.services.logger.error(`Graph ${method} ${path} -> ${resp.status}: ${detail}`)
-      throw new Error(json?.error?.message || `Graph ${method} ${path} 失败 (${resp.status})`)
+      throw new Error(json?.error?.message || this.ctx.services.i18n.t('calendar.outlookGraphRequestFailed', { method, path, status: resp.status }))
     }
     return json
   }

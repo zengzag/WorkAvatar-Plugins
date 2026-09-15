@@ -130,6 +130,10 @@ export function createMockContext(pluginId = 'test-plugin'): {
       getDataDir: () => path.join(os.tmpdir(), 'wa-mock-data'),
       listNativeModules: () => ({ 'better-sqlite3': '^12.9.0' }),
     },
+    // 文案本地化：测试按 key 直通，断言不依赖具体语言文案
+    i18n: {
+      t: vi.fn((key: string) => key),
+    },
     data: {
       query: vi.fn(async () => []),
       mutate: vi.fn(async () => ({})),

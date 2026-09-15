@@ -72,10 +72,6 @@
     "minutesStreamingHint": "AI 正在生成纪要内容，请稍候...",
     "minutes": "会议纪要",
     "copyMinutes": "复制纪要",
-    "minutesTypeMeeting": "会议纪要",
-    "minutesTypeSummary": "内容摘要",
-    "minutesTypeAction": "待办事项",
-    "minutesTypeCustom": "自定义",
     "minutesType_meeting_minutes": "会议纪要",
     "minutesType_summary": "内容摘要",
     "minutesType_action_items": "待办事项",
@@ -151,5 +147,35 @@
     "preparingModel": "正在准备识别模型...",
     "manualNotes": "手动纪要",
     "notesPlaceholder": "在此记录会议要点和笔记..."
+  },
+  "errors": {
+    "localModelUnavailable": "内置模型不可用",
+    "builtinModelDirMissing": "内置模型目录不存在: {{path}}",
+    "builtinModelFileMissing": "缺少模型文件: {{file}}",
+    "builtinModelFilesMissing": "内置模型文件缺失: {{files}}",
+    "realtimeLocalModeOnly": "实时识别仅支持本地模式，请在设置中切换为本地识别",
+    "realtimeStreamingOnly": "实时识别仅支持流式模型（streaming zipformer），请切换模型或使用录音后识别",
+    "noMinutesModel": "未配置会议纪要生成模型，请在设置中配置 LLM 模型",
+    "transcribeFailed": "识别失败: {{error}}",
+    "minutesFailed": "纪要生成失败: {{error}}",
+    "aiEmptyResponse": "AI 未返回任何内容"
+  },
+  "progress": {
+    "uploadingAudio": "正在上传音频进行语音识别...",
+    "processingResult": "正在处理识别结果...",
+    "transcribeCompleted": "语音识别完成",
+    "transcribeCancelled": "已取消识别",
+    "minutesCancelled": "已取消生成",
+    "cancelled": "已取消",
+    "preparingMinutes": "正在准备会议纪要生成...",
+    "analyzingTranscript": "AI 正在分析转录文本...",
+    "generatingMinutes": "正在生成纪要内容...",
+    "finalizingMinutes": "正在整理纪要内容...",
+    "minutesCompleted": "会议纪要生成完成",
+    "realtimeCompleted": "实时识别完成",
+    "loadingAudio": "正在加载音频文件...",
+    "processingAudio": "正在处理音频...",
+    "recognizingSegment": "正在识别第 {{current}}/{{total}} 段...",
+    "finalizingTranscript": "正在整理转录结果..."
   }
 }

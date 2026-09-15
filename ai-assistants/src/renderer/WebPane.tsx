@@ -25,7 +25,7 @@ import {
 } from '@ant-design/icons'
 import { WEBVIEW_USER_AGENT, getSiteById, hostnameOf, type AiWebSite } from '../shared/sites'
 import { createWebview, type WebviewElement } from './webview'
-import { t, popupContainer } from './host'
+import { t, siteName, popupContainer } from './host'
 
 /** guest 未在此时限内开始加载，判定为被宿主白名单守卫拦截 */
 const ATTACH_TIMEOUT_MS = 6000
@@ -239,7 +239,7 @@ export function WebPane({
                 className="aiweb-dot"
                 style={{ background: site?.color ?? 'var(--ant-color-text-quaternary)' }}
               />
-              <span className="aiweb-site-name">{site?.name ?? t('pane.pickSite')}</span>
+              <span className="aiweb-site-name">{site ? siteName(site) : t('pane.pickSite')}</span>
               <DownOutlined className="aiweb-site-caret" />
             </button>
           </Dropdown>
@@ -345,7 +345,7 @@ export function WebPane({
           <div className="aiweb-hint">
             <div className="aiweb-hint-title">{t('pane.blocked.title')}</div>
             <div className="aiweb-hint-text">
-              {t('pane.blocked.text', { site: getSiteById(siteId)?.name ?? siteId })}
+              {t('pane.blocked.text', { site: siteName(getSiteById(siteId)) || siteId })}
             </div>
           </div>
         )}

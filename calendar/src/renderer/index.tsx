@@ -22,9 +22,13 @@ function setupGlobalNotify(): () => void {
     disposeCallbacks.push(cal.onNotify((payload: NotifyPayload) => {
       const key = `cal-notify-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       const i18nKey = (payload as any)?.i18nKey as string | undefined
+      const i18nTitleKey = (payload as any)?.i18nTitleKey as string | undefined
       const displayBody: string = i18nKey
         ? String(hostT(i18nKey, { ...((payload as any).i18nParams || {}), defaultValue: payload.body }))
         : payload.body
+      const displayTitle: string = i18nTitleKey
+        ? String(hostT(i18nTitleKey, { ...((payload as any).i18nParams || {}), defaultValue: payload.title }))
+        : payload.title
       const btn = (
         <Button
           type="link"
@@ -39,7 +43,7 @@ function setupGlobalNotify(): () => void {
       )
       notification.open({
         key,
-        message: payload.title,
+        message: displayTitle,
         description: displayBody,
         btn,
         duration: 8,

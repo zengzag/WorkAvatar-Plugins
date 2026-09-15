@@ -149,16 +149,16 @@ class NotesService {
 
   private resolve(relPath: string): string {
     if (!relPath || typeof relPath !== 'string') {
-      throw new Error('路径不能为空')
+      throw new Error(this.ctx.services.i18n.t('errors.pathRequired'))
     }
     const normalized = path.normalize(relPath)
     if (path.isAbsolute(normalized)) {
-      throw new Error('不允许绝对路径')
+      throw new Error(this.ctx.services.i18n.t('errors.absolutePathNotAllowed'))
     }
     const full = path.resolve(this.vaultRoot, normalized)
     const rootWithSep = this.vaultRoot + path.sep
     if (full !== this.vaultRoot && !full.startsWith(rootWithSep)) {
-      throw new Error('路径越界')
+      throw new Error(this.ctx.services.i18n.t('errors.pathOutOfBounds'))
     }
     return full
   }
@@ -240,10 +240,10 @@ class NotesService {
     try {
       stat = fs.statSync(full)
     } catch {
-      throw new Error('笔记不存在')
+      throw new Error(this.ctx.services.i18n.t('errors.noteNotFound'))
     }
     if (!stat.isFile()) {
-      throw new Error('笔记不存在')
+      throw new Error(this.ctx.services.i18n.t('errors.noteNotFound'))
     }
     const content = fs.readFileSync(full, 'utf-8')
     return {
@@ -272,9 +272,9 @@ class NotesService {
   createNote(parentRelPath: string, name: string): NoteNode {
     const parentAbs = parentRelPath ? this.resolve(parentRelPath) : this.vaultRoot
     if (!fs.existsSync(parentAbs) || !fs.statSync(parentAbs).isDirectory()) {
-      throw new Error('父文件夹不存在')
+      throw new Error(this.ctx.services.i18n.t('errors.parentFolderNotFound'))
     }
-    const baseName = this.sanitizeName(name) || '无标题笔记'
+    const baseName = this.sanitizeName(name) || this.ctx.services.i18n.t('untitledNote')
     const fileName = this.ensureMdExt(baseName)
     const finalName = this.uniqueName(parentAbs, fileName)
     const full = path.join(parentAbs, finalName)
@@ -296,9 +296,9 @@ class NotesService {
   createFolder(parentRelPath: string, name: string): NoteNode {
     const parentAbs = parentRelPath ? this.resolve(parentRelPath) : this.vaultRoot
     if (!fs.existsSync(parentAbs) || !fs.statSync(parentAbs).isDirectory()) {
-      throw new Error('父文件夹不存在')
+      throw new Error(this.ctx.services.i18n.t('errors.parentFolderNotFound'))
     }
-    const baseName = this.sanitizeName(name) || '新建文件夹'
+    const baseName = this.sanitizeName(name) || this.ctx.services.i18n.t('newFolder')
     const finalName = this.uniqueName(parentAbs, baseName, true)
     const full = path.join(parentAbs, finalName)
     this.markSelfWrite(parentRelPath ? `${parentRelPath}/${finalName}` : finalName)
@@ -319,22 +319,22 @@ class NotesService {
 
   renameItem(relPath: string, newName: string): RenameResult {
     const full = this.resolve(relPath)
-    if (!fs.existsSync(full)) throw new Error('目标不存在')
+    if (!fs.existsSync(full)) throw new Error(this.ctx.services.i18n.t('errors.targetNotFound'))
     const isFile = fs.statSync(full).isFile()
     let finalName = this.sanitizeName(newName)
-    if (!finalName) throw new Error('名称无效')
+    if (!finalName) throw new Error(this.ctx.services.i18n.t('errors.invalidName'))
     if (isFile) {
       finalName = this.ensureMdExt(finalName)
     } else {
       finalName = finalName.replace(/[.]+$/, '')
-      if (!finalName) throw new Error('名称无效')
+      if (!finalName) throw new Error(this.ctx.services.i18n.t('errors.invalidName'))
     }
     if (finalName === path.basename(full)) {
       return { relPath: this.toPosix(relPath) }
     }
     const parent = path.dirname(full)
     const dest = path.join(parent, finalName)
-    if (fs.existsSync(dest)) throw new Error('已存在同名项')
+    if (fs.existsSync(dest)) throw new Error(this.ctx.services.i18n.t('errors.nameConflict'))
     this.markSelfWrite(relPath)
     fs.renameSync(full, dest)
     const parentRel = path.dirname(relPath)
@@ -347,19 +347,19 @@ class NotesService {
 
   moveItem(srcRelPath: string, destParentRelPath: string): RenameResult {
     const srcFull = this.resolve(srcRelPath)
-    if (!fs.existsSync(srcFull)) throw new Error('源不存在')
+    if (!fs.existsSync(srcFull)) throw new Error(this.ctx.services.i18n.t('errors.sourceNotFound'))
     const destParentAbs = destParentRelPath ? this.resolve(destParentRelPath) : this.vaultRoot
     if (!fs.existsSync(destParentAbs) || !fs.statSync(destParentAbs).isDirectory()) {
-      throw new Error('目标文件夹不存在')
+      throw new Error(this.ctx.services.i18n.t('errors.targetFolderNotFound'))
     }
     const baseName = path.basename(srcFull)
     const destFull = path.join(destParentAbs, baseName)
     if (srcFull === destFull) {
       return { relPath: this.toPosix(srcRelPath) }
     }
-    if (fs.existsSync(destFull)) throw new Error('目标已存在同名项')
+    if (fs.existsSync(destFull)) throw new Error(this.ctx.services.i18n.t('errors.targetNameConflict'))
     if (fs.statSync(srcFull).isDirectory() && destFull.startsWith(srcFull + path.sep)) {
-      throw new Error('不能移入自身子目录')
+      throw new Error(this.ctx.services.i18n.t('errors.cannotMoveIntoSubdirectory'))
     }
     this.markSelfWrite(srcRelPath)
     fs.renameSync(srcFull, destFull)
@@ -373,10 +373,10 @@ class NotesService {
 
   async copyItem(srcRelPath: string, destParentRelPath: string): Promise<{ relPath: string }> {
     const srcFull = this.resolve(srcRelPath)
-    if (!fs.existsSync(srcFull)) throw new Error('源不存在')
+    if (!fs.existsSync(srcFull)) throw new Error(this.ctx.services.i18n.t('errors.sourceNotFound'))
     const destParentAbs = destParentRelPath ? this.resolve(destParentRelPath) : this.vaultRoot
     if (!fs.existsSync(destParentAbs) || !fs.statSync(destParentAbs).isDirectory()) {
-      throw new Error('目标文件夹不存在')
+      throw new Error(this.ctx.services.i18n.t('errors.targetFolderNotFound'))
     }
     const baseName = path.basename(srcFull)
     const isFolder = fs.statSync(srcFull).isDirectory()
@@ -384,7 +384,7 @@ class NotesService {
     const finalName = this.uniqueName(destParentAbs, stem, isFolder)
     const destFull = path.join(destParentAbs, finalName)
     if (isFolder && destFull.startsWith(srcFull + path.sep)) {
-      throw new Error('不能复制到自身子目录')
+      throw new Error(this.ctx.services.i18n.t('errors.cannotCopyIntoSubdirectory'))
     }
     await this.copyRecursiveAsync(srcFull, destFull)
     const newRel = destParentRelPath
@@ -409,17 +409,17 @@ class NotesService {
   }
 
   async importExternal(srcAbsPath: string, destParentRelPath: string): Promise<{ relPath: string }> {
-    if (!srcAbsPath || !fs.existsSync(srcAbsPath)) throw new Error('源文件不存在')
+    if (!srcAbsPath || !fs.existsSync(srcAbsPath)) throw new Error(this.ctx.services.i18n.t('errors.sourceFileNotFound'))
     const destParentAbs = destParentRelPath ? this.resolve(destParentRelPath) : this.vaultRoot
     if (!fs.existsSync(destParentAbs) || !fs.statSync(destParentAbs).isDirectory()) {
-      throw new Error('目标文件夹不存在')
+      throw new Error(this.ctx.services.i18n.t('errors.targetFolderNotFound'))
     }
     const baseName = path.basename(srcAbsPath)
     const isFolder = fs.statSync(srcAbsPath).isDirectory()
     const finalName = this.uniqueName(destParentAbs, baseName, isFolder)
     const destFull = path.join(destParentAbs, finalName)
     if (isFolder && destFull.startsWith(srcAbsPath + path.sep)) {
-      throw new Error('不能复制到自身子目录')
+      throw new Error(this.ctx.services.i18n.t('errors.cannotCopyIntoSubdirectory'))
     }
     await this.copyRecursiveAsync(srcAbsPath, destFull)
     const newRel = destParentRelPath
@@ -435,7 +435,7 @@ class NotesService {
 
   openInExplorer(relPath: string): void {
     const full = this.resolve(relPath)
-    if (!fs.existsSync(full)) throw new Error('目标不存在')
+    if (!fs.existsSync(full)) throw new Error(this.ctx.services.i18n.t('errors.targetNotFound'))
     const stat = fs.statSync(full)
     if (stat.isDirectory()) {
       shell.openPath(full)
@@ -445,16 +445,16 @@ class NotesService {
   }
 
   readExternalFile(absPath: string): NoteContent {
-    if (!absPath || typeof absPath !== 'string') throw new Error('路径不能为空')
+    if (!absPath || typeof absPath !== 'string') throw new Error(this.ctx.services.i18n.t('errors.pathRequired'))
     const resolved = path.resolve(absPath)
-    if (!resolved.toLowerCase().endsWith('.md')) throw new Error('仅支持 .md 文件')
+    if (!resolved.toLowerCase().endsWith('.md')) throw new Error(this.ctx.services.i18n.t('errors.onlyMarkdownSupported'))
     let stat: fs.Stats
     try {
       stat = fs.statSync(resolved)
     } catch {
-      throw new Error('文件不存在')
+      throw new Error(this.ctx.services.i18n.t('errors.fileNotFound'))
     }
-    if (!stat.isFile()) throw new Error('不是文件')
+    if (!stat.isFile()) throw new Error(this.ctx.services.i18n.t('errors.notAFile'))
     const content = fs.readFileSync(resolved, 'utf-8')
     return {
       relPath: resolved,
@@ -465,9 +465,9 @@ class NotesService {
   }
 
   writeExternalFile(absPath: string, content: string): NoteContent {
-    if (!absPath || typeof absPath !== 'string') throw new Error('路径不能为空')
+    if (!absPath || typeof absPath !== 'string') throw new Error(this.ctx.services.i18n.t('errors.pathRequired'))
     const resolved = path.resolve(absPath)
-    if (!resolved.toLowerCase().endsWith('.md')) throw new Error('仅支持 .md 文件')
+    if (!resolved.toLowerCase().endsWith('.md')) throw new Error(this.ctx.services.i18n.t('errors.onlyMarkdownSupported'))
     fs.writeFileSync(resolved, content, 'utf-8')
     const stat = fs.statSync(resolved)
     return {
@@ -614,11 +614,11 @@ class NotesService {
 
   openOrCreateDiary(): { relPath: string; created: boolean } {
     const settings = this.getSettings()
-    if (!settings.diary_enabled) throw new Error('日记功能未启用')
+    if (!settings.diary_enabled) throw new Error(this.ctx.services.i18n.t('errors.diaryDisabled'))
     const rootRel = (settings.diary_root || '').trim() || 'diary'
     const rootFull = this.resolve(rootRel)
     if (fs.existsSync(rootFull) && !fs.statSync(rootFull).isDirectory()) {
-      throw new Error('日记根目录已被文件占用')
+      throw new Error(this.ctx.services.i18n.t('errors.diaryRootOccupiedByFile'))
     }
     this.ensureDir(rootFull)
     const now = new Date()
@@ -696,7 +696,7 @@ class NotesService {
 let service: NotesService | null = null
 
 /** 由消息内容生成笔记标题：优先首个标题，其次首行非空文本，最后时间戳兜底 */
-function buildNoteName(content: string): string {
+function buildNoteName(content: string, ctx: PluginContext): string {
   const headingMatch = content.match(/^#+\s+(.+)$/m)
   if (headingMatch) {
     const t = headingMatch[1].replace(/[*_`~\[\]]/g, '').trim().slice(0, 40)
@@ -705,7 +705,7 @@ function buildNoteName(content: string): string {
   const firstLine = content.split(/\r?\n/).map(l => l.trim()).filter(Boolean)[0] || ''
   const cleaned = firstLine.replace(/^#+\s+/, '').replace(/[*_`~\[\]()]/g, '').replace(/\s+/g, ' ').trim().slice(0, 40)
   if (cleaned) return cleaned
-  return `AI回复-${Date.now()}`
+  return ctx.services.i18n.t('aiReplyNoteName', { time: Date.now() })
 }
 
 export function activate(ctx: PluginContext): void {
@@ -720,7 +720,7 @@ export function activate(ctx: PluginContext): void {
     handler: async ({ content }) => {
       if (!service || !content) return { error: 'saveToNoteFailed' }
       try {
-        const created = service.createNote('', buildNoteName(content))
+        const created = service.createNote('', buildNoteName(content, ctx))
         service.writeNote(created.relPath, content)
         return { success: 'saveToNoteSuccess' }
       } catch {
@@ -746,44 +746,44 @@ function registerIpc(ctx: PluginContext): void {
   ctx.ipc.handle('list-tree', () => s.listTree())
 
   ctx.ipc.handle('read', (relPath: string) => {
-    if (!relPath) return { error: 'relPath 必填' }
+    if (!relPath) return { error: ctx.services.i18n.t('errors.relPathRequired') }
     return s.readNote(relPath)
   })
 
   ctx.ipc.handle('write', (params: { relPath: string; content: string }) => {
     if (!params?.relPath || typeof params.content !== 'string') {
-      return { error: 'relPath 和 content 必填' }
+      return { error: ctx.services.i18n.t('errors.relPathAndContentRequired') }
     }
     return s.writeNote(params.relPath, params.content)
   })
 
   ctx.ipc.handle('create-note', (params: { parentRelPath: string; name: string }) => {
-    if (!params?.name) return { error: 'name 必填' }
+    if (!params?.name) return { error: ctx.services.i18n.t('errors.nameRequired') }
     return s.createNote(params.parentRelPath || '', params.name)
   })
 
   ctx.ipc.handle('create-folder', (params: { parentRelPath: string; name: string }) => {
-    if (!params?.name) return { error: 'name 必填' }
+    if (!params?.name) return { error: ctx.services.i18n.t('errors.nameRequired') }
     return s.createFolder(params.parentRelPath || '', params.name)
   })
 
   ctx.ipc.handle('rename', (params: { relPath: string; newName: string }) => {
-    if (!params?.relPath || !params.newName) return { error: 'relPath 和 newName 必填' }
+    if (!params?.relPath || !params.newName) return { error: ctx.services.i18n.t('errors.relPathAndNewNameRequired') }
     return s.renameItem(params.relPath, params.newName)
   })
 
   ctx.ipc.handle('move', (params: { srcRelPath: string; destParentRelPath: string }) => {
-    if (!params?.srcRelPath) return { error: 'srcRelPath 必填' }
+    if (!params?.srcRelPath) return { error: ctx.services.i18n.t('errors.srcRelPathRequired') }
     return s.moveItem(params.srcRelPath, params.destParentRelPath || '')
   })
 
   ctx.ipc.handle('copy', async (params: { srcRelPath: string; destParentRelPath: string }) => {
-    if (!params?.srcRelPath) return { error: 'srcRelPath 必填' }
+    if (!params?.srcRelPath) return { error: ctx.services.i18n.t('errors.srcRelPathRequired') }
     return await s.copyItem(params.srcRelPath, params.destParentRelPath || '')
   })
 
   ctx.ipc.handle('delete', async (relPath: string) => {
-    if (!relPath) return { error: 'relPath 必填' }
+    if (!relPath) return { error: ctx.services.i18n.t('errors.relPathRequired') }
     return await s.deleteItem(relPath)
   })
 
@@ -799,21 +799,21 @@ function registerIpc(ctx: PluginContext): void {
   })
 
   ctx.ipc.handle('get-abs-path', (relPath: string) => {
-    if (!relPath) return { error: 'relPath 必填' }
+    if (!relPath) return { error: ctx.services.i18n.t('errors.relPathRequired') }
     try {
       return { absPath: s.getAbsolutePath(relPath) }
     } catch (err: any) {
-      return { error: err?.message || '获取路径失败' }
+      return { error: err?.message || ctx.services.i18n.t('errors.getPathFailed') }
     }
   })
 
   ctx.ipc.handle('open-in-explorer', (relPath: string) => {
-    if (!relPath) return { error: 'relPath 必填' }
+    if (!relPath) return { error: ctx.services.i18n.t('errors.relPathRequired') }
     try {
       s.openInExplorer(relPath)
       return { success: true }
     } catch (err: any) {
-      return { error: err?.message || '打开失败' }
+      return { error: err?.message || ctx.services.i18n.t('errors.openFailed') }
     }
   })
 
@@ -822,27 +822,27 @@ function registerIpc(ctx: PluginContext): void {
       shell.openPath(s.getVaultRoot())
       return { success: true }
     } catch (err: any) {
-      return { error: err?.message || '打开失败' }
+      return { error: err?.message || ctx.services.i18n.t('errors.openFailed') }
     }
   })
 
   ctx.ipc.handle('import-external', async (params: { srcAbsPath: string; destParentRelPath: string }) => {
-    if (!params?.srcAbsPath) return { error: 'srcAbsPath 必填' }
+    if (!params?.srcAbsPath) return { error: ctx.services.i18n.t('errors.srcAbsPathRequired') }
     try {
       return await s.importExternal(params.srcAbsPath, params.destParentRelPath || '')
     } catch (err: any) {
-      return { error: err?.message || '导入失败' }
+      return { error: err?.message || ctx.services.i18n.t('errors.importFailed') }
     }
   })
 
   ctx.ipc.handle('save-image', (params: { buffer: ArrayBuffer; fileName: string }) => {
-    if (!params?.buffer) return { error: 'buffer 必填' }
+    if (!params?.buffer) return { error: ctx.services.i18n.t('errors.bufferRequired') }
     try {
       const buffer = Buffer.from(params.buffer as ArrayBuffer)
       const relPath = s.saveImage(buffer, params.fileName || 'image.png')
       return { relPath }
     } catch (err: any) {
-      return { error: err?.message || '保存图片失败' }
+      return { error: err?.message || ctx.services.i18n.t('errors.saveImageFailed') }
     }
   })
 
@@ -850,27 +850,27 @@ function registerIpc(ctx: PluginContext): void {
     try {
       return s.openOrCreateDiary()
     } catch (err: any) {
-      return { error: err?.message || '打开日记失败' }
+      return { error: err?.message || ctx.services.i18n.t('errors.openDiaryFailed') }
     }
   })
 
   ctx.ipc.handle('read-external', (absPath: string) => {
-    if (!absPath) return { error: 'absPath 必填' }
+    if (!absPath) return { error: ctx.services.i18n.t('errors.absPathRequired') }
     try {
       return s.readExternalFile(absPath)
     } catch (err: any) {
-      return { error: err?.message || '打开文件失败' }
+      return { error: err?.message || ctx.services.i18n.t('errors.openFileFailed') }
     }
   })
 
   ctx.ipc.handle('write-external', (params: { absPath: string; content: string }) => {
     if (!params?.absPath || typeof params.content !== 'string') {
-      return { error: 'absPath 和 content 必填' }
+      return { error: ctx.services.i18n.t('errors.absPathAndContentRequired') }
     }
     try {
       return s.writeExternalFile(params.absPath, params.content)
     } catch (err: any) {
-      return { error: err?.message || '保存失败' }
+      return { error: err?.message || ctx.services.i18n.t('errors.saveFailed') }
     }
   })
 }

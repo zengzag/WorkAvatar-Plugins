@@ -7,7 +7,7 @@ import { Segmented, Switch, Tooltip } from 'antd'
 import { CloseOutlined, DownOutlined, UpOutlined } from '@ant-design/icons'
 import { AI_WEB_SITES, type AiWebLayout, type AiWebLayoutMode } from '../shared/sites'
 import { buildModeOptions } from './modes'
-import { t, popupContainer } from './host'
+import { t, siteName, popupContainer } from './host'
 
 export interface SettingsPanelProps {
   layout: AiWebLayout
@@ -68,7 +68,7 @@ export function SettingsPanel({
               return (
                 <div key={site.id} className={`aiweb-site-row${on ? '' : ' is-off'}`}>
                   <span className="aiweb-dot" style={{ background: site.color }} />
-                  <span className="aiweb-site-row-name">{site.name}</span>
+                  <span className="aiweb-site-row-name">{siteName(site)}</span>
                   <span className="aiweb-site-row-ops">
                     <Tooltip getPopupContainer={popupContainer} title={t('settings.moveUp')}>
                       <button

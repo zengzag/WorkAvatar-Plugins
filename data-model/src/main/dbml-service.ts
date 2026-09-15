@@ -105,7 +105,7 @@ function mapCardinality(raw?: string): 'one' | 'many' {
   return 'many'
 }
 
-export function importDbml(dbml: string, modelName = 'DBML 导入'): DataModel {
+export function importDbml(dbml: string, modelName: string): DataModel {
   const parsed = parseDbml(dbml)
   const tableNameToId = new Map<string, string>()
   const fieldKeyToId = new Map<string, string>()
