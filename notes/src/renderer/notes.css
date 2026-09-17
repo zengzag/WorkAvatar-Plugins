@@ -162,6 +162,15 @@
   user-select: none;
 }
 
+/* 标题（h1/h2）去掉下边框横线 */
+.notes-vditor-container .vditor-reset h1,
+.notes-vditor-container .vditor-reset h2,
+.notes-preview h1,
+.notes-preview h2 {
+  border-bottom: none !important;
+  padding-bottom: 0 !important;
+}
+
 /* 笔记文档：暗色主题下的渲染配色（编辑器与预览共用）。
    Vditor 的 .vditor-reset 保留了硬编码的亮色值（引用块/分割线/表格/代码块），
    在暗色下会显得突兀花哨，这里统一用 antd 暗色 token 覆盖为简洁配色。 */
