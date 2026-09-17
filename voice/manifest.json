@@ -1,7 +1,7 @@
 {
   "id": "voice",
   "name": "Voice",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "engine": ">=0.2.0",
   "description": "语音识别：本地录音转写、会议纪要生成、实时边录边识别、悬浮字幕",
   "author": "WorkAvatar",

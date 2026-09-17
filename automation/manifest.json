@@ -1,7 +1,7 @@
 {
   "id": "automation",
   "name": "Automation",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "engine": ">=0.2.0",
   "description": "自动化任务管理，支持定时调度数字员工执行提示词任务、执行历史、未来执行预览",
   "author": "WorkAvatar",

@@ -1,7 +1,7 @@
 {
   "id": "notes",
   "name": "Notes",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "engine": ">=0.2.0",
   "description": "Markdown 笔记编辑器，支持 Vault 管理、多标签、日记、大纲、搜索",
   "author": "WorkAvatar",

@@ -1,6 +1,6 @@
 {
   "name": "workavatar-plugin-calendar",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "description": "日历与待办插件依赖声明",
   "dependencies": {

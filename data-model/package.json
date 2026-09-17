@@ -1,6 +1,6 @@
 {
   "name": "workavatar-plugin-data-model",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
   "description": "数据模型插件依赖声明",
   "dependencies": {

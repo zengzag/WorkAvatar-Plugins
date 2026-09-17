@@ -1,7 +1,7 @@
 {
   "id": "ai-assistants",
   "name": "AI 助手集",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "engine": ">=0.2.0",
   "description": "在同一个窗口内以单栏、双栏或标签页方式打开豆包、DeepSeek 等 AI 网页版，各站点独立持久化登录态，便于多智能体对照使用",
   "author": "WorkAvatar",

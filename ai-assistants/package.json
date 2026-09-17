@@ -1,6 +1,6 @@
 {
   "name": "workavatar-plugin-ai-assistants",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "AI 助手集插件依赖声明（仅用宿主共享库，无额外运行时依赖）",
   "dependencies": {},
