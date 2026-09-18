@@ -1,0 +1,31 @@
+{
+  "id": "word-editor",
+  "name": "Word Editor",
+  "version": "0.1.0",
+  "engine": ">=0.2.0",
+  "description": "Word 文档编辑器：docx 导入、富文本编辑、AI 对话改稿、排版指令、版本快照，导出 docx/PDF",
+  "author": "WorkAvatar",
+  "main": "dist/main/index.cjs",
+  "renderer": "dist/renderer/index.js",
+  "locale": "locale",
+  "ipc": [
+    "doc-list", "doc-create", "doc-open", "doc-delete", "doc-rename", "doc-save", "doc-get",
+    "doc-import-file",
+    "export-docx", "export-pdf",
+    "snapshot-list", "snapshot-create", "snapshot-restore", "snapshot-delete",
+    "providers-list",
+    "settings-get", "settings-set",
+    "chat-send", "chat-cancel", "chat-history", "chats-list", "chat-delete",
+    "inline-edit"
+  ],
+  "capabilities": [
+    { "domain": "data", "entities": ["llmProviders"], "access": "read" },
+    { "domain": "execute", "kinds": ["agent-chat"] }
+  ],
+  "nav": {
+    "label": "navLabel",
+    "icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4 1.5h5.5L13 5v9.5H4z\"/><path d=\"M9.5 1.5V5H13\"/><path d=\"M5.8 8h4.4M5.8 10.5h4.4M5.8 13h2.5\"/></svg>",
+    "order": 50,
+    "detachable": true
+  }
+}
