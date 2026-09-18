@@ -1,4 +1,4 @@
-// 渲染端桥接封装：bridge + i18n + IPC 通道
+// 渲染端桥接封装：bridge + i18n + IPC 通道 + 主题
 
 import { useState, useEffect } from 'react'
 import type { PluginBridge, PluginHostCapabilities } from '@workavatar/plugin-sdk/renderer'
@@ -11,7 +11,8 @@ export interface DocMeta {
 }
 
 export interface DocRecord extends DocMeta {
-  html: string
+  /** wordcanvas Document 模型 JSON */
+  data: string
 }
 
 export interface SnapshotMeta {
@@ -52,45 +53,68 @@ export function isDarkTheme(): boolean {
   return document.documentElement.getAttribute('data-theme') === 'dark'
 }
 
-export function useAppearance(): { isDark: boolean } {
-  const [isDark, setIsDark] = useState(() => isDarkTheme())
+/** 宿主当前语言（appearance.store 写入 data-locale） */
+export function getAppLocale(): 'zh-CN' | 'en-US' {
+  return document.documentElement.getAttribute('data-locale') === 'en-US' ? 'en-US' : 'zh-CN'
+}
+
+export function useAppearance(): { isDark: boolean; locale: 'zh-CN' | 'en-US' } {
+  const [state, setState] = useState(() => ({ isDark: isDarkTheme(), locale: getAppLocale() }))
   useEffect(() => {
-    const observer = new MutationObserver(() => setIsDark(isDarkTheme()))
+    const observer = new MutationObserver(() => setState({ isDark: isDarkTheme(), locale: getAppLocale() }))
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'data-locale'] })
     return () => observer.disconnect()
   }, [])
-  return { isDark }
+  return state
 }
 
 // ====== IPC 通道封装 ======
 
 export const we = {
-  listDocs: () => invoke<{ id: string; title: string; updatedAt: number; sourcePath?: string | null }[]>('doc-list'),
-  createDoc: (title?: string) => invoke<{ doc: any }>('doc-create', { title }),
-  openDoc: (id: string) => invoke<{ doc: { id: string; title: string; html: string; sourcePath: string | null; updatedAt: number } } | { error: string }>('doc-open', { id }),
-  getDoc: (id: string) => invoke<{ doc: any } | { error: string }>('doc-get', { id }),
+  // 文档
+  listDocs: () => invoke<Array<Omit<DocRecord, 'data'>>>('doc-list'),
+  createDoc: (title?: string, data?: string) =>
+    invoke<{ doc: DocRecord } | { error: string }>('doc-create', { title, data }),
+  openDoc: (id: string) => invoke<{ doc: DocRecord } | { error: string }>('doc-open', { id }),
   deleteDoc: (id: string) => invoke<{ ok: boolean } | { error: string }>('doc-delete', { id }),
   renameDoc: (id: string, title: string) => invoke<{ ok: boolean } | { error: string }>('doc-rename', { id, title }),
-  saveDoc: (id: string, html: string, title?: string) => invoke<{ ok: boolean; updatedAt: number }>('doc-save', { id, html, title }),
-  syncDoc: (id: string, html: string) => invoke<{ ok: boolean }>('doc-sync', { id, html }),
-  importDocx: (path?: string) => invoke<{ doc?: any } | { error: string }>('doc-import-file', { path }),
-  exportDocx: (payload: { html: string; title: string }) => invoke<{ ok: boolean; path?: string } | { error: string }>('export-docx', payload),
-  exportPdf: (payload: { html: string; title: string }) => invoke<{ ok: boolean; path?: string } | { error: string }>('export-pdf', payload),
+  saveDoc: (id: string, data: string, title?: string) =>
+    invoke<{ ok: boolean; updatedAt: number } | { error: string }>('doc-save', { id, data, title }),
+
+  // 导入：主进程读字节，渲染端 wordcanvas 解析
+  importDocx: (path?: string) =>
+    invoke<{ bytes?: Uint8Array; name?: string; sourcePath?: string; error?: string }>('doc-import-file', { path }),
+
+  // 导出：渲染端产出字节，主进程弹框落盘
+  exportSave: (bytes: Uint8Array, format: 'docx' | 'pdf', title: string) =>
+    invoke<{ ok?: boolean; path?: string; error?: string }>('export-save', { bytes, format, title }),
+
+  // 快照
   listSnapshots: (id: string) => invoke<{ snapshots: SnapshotMeta[] } | { error: string }>('snapshot-list', { id }),
-  createSnapshot: (id: string, label?: string) => invoke<{ snapshot: SnapshotMeta }>('snapshot-create', { id, label }),
-  restoreSnapshot: (snapshotId: string) => invoke<{ ok: boolean }>('snapshot-restore', { snapshotId }),
-  deleteSnapshot: (id: string) => invoke<{ ok: boolean }>('snapshot-delete', { id }),
+  createSnapshot: (id: string, label?: string) => invoke<{ ok: boolean } | { error: string }>('snapshot-create', { id, label }),
+  restoreSnapshot: (snapshotId: string) => invoke<{ ok: boolean } | { error: string }>('snapshot-restore', { snapshotId }),
+  deleteSnapshot: (id: string) => invoke<{ ok: boolean } | { error: string }>('snapshot-delete', { id }),
+
+  // AI
   listProviders: () => invoke<any[]>('providers-list'),
   getSettings: () => invoke<{ settings: any }>('settings-get'),
   setSettings: (settings: any) => invoke<{ ok: boolean }>('settings-set', { settings }),
-  sendChat: (payload: { providerId: string; modelId?: string; messages: Array<{ id?: string; role: string; content: string; images?: string[] }>; conversationId?: string; assistantId?: string }) =>
-    invoke<{ conversationId: string; workspacePath?: string | null } | { error: string }>('chat-send', payload),
+  sendChat: (payload: {
+    providerId: string
+    modelId?: string
+    messages: Array<{ id?: string; role: string; content: string; images?: string[] }>
+    conversationId?: string
+    assistantId?: string
+  }) => invoke<{ conversationId: string; workspacePath?: string | null } | { error: string }>('chat-send', payload),
   cancelChat: (conversationId?: string) => invoke<{ ok: boolean }>('chat-cancel', { conversationId }),
   chatHistory: (conversationId: string) => invoke<any[]>('chat-history', { conversationId }),
   listChats: () => invoke<Array<{ conversationId: string; title: string; updatedAt: number; workspacePath?: string | null }>>('chats-list'),
-  deleteChat: (conversationId: string) => invoke<{ ok: boolean; taskDir?: string; taskDirNonEmpty?: boolean } | { error: string }>('chat-delete', { conversationId }),
+  deleteChat: (conversationId: string) =>
+    invoke<{ ok: boolean; taskDir?: string; taskDirNonEmpty?: boolean } | { error: string }>('chat-delete', { conversationId }),
   openChatDir: (conversationId: string) => invoke<{ ok: boolean; error?: string }>('chat-open-dir', { conversationId }),
-  onDocChanged: (cb: (payload: { doc: { id: string; title: string; html: string }; source: string }) => void) =>
+
+  // 事件
+  onDocChanged: (cb: (payload: { doc: { id: string; data: string }; source: string }) => void) =>
     onEvent('doc-changed', (p) => cb(p as any)),
   onDocListChanged: (cb: () => void) => onEvent('doc-list-changed', () => cb()),
   onChatsChanged: (cb: () => void) => onEvent('chats-changed', () => cb()),

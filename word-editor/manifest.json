@@ -9,18 +9,27 @@
   "renderer": "dist/renderer/index.js",
   "locale": "locale",
   "ipc": [
-    "doc-list", "doc-create", "doc-open", "doc-delete", "doc-rename", "doc-save", "doc-get",
-    "doc-import-file",
-    "export-docx", "export-pdf",
+    "doc-list", "doc-create", "doc-open", "doc-delete", "doc-rename", "doc-save",
+    "doc-import-file", "export-save",
     "snapshot-list", "snapshot-create", "snapshot-restore", "snapshot-delete",
     "providers-list",
     "settings-get", "settings-set",
-    "chat-send", "chat-cancel", "chat-history", "chats-list", "chat-delete",
-    "inline-edit"
+    "chat-send", "chat-cancel", "chat-history", "chats-list", "chat-delete", "chat-open-dir"
   ],
   "capabilities": [
     { "domain": "data", "entities": ["llmProviders"], "access": "read" },
     { "domain": "execute", "kinds": ["agent-chat"] }
+  ],
+  "vendor": [
+    {
+      "from": "node_modules/@forevka/wordcanvas/dist-lib",
+      "to": "vendor/wordcanvas",
+      "patch": "scripts/patch-wordcanvas.mjs"
+    },
+    {
+      "from": "node_modules/@forevka/wordcanvas/dist-node/fonts",
+      "to": "vendor/wordcanvas/assets/fonts"
+    }
   ],
   "nav": {
     "label": "navLabel",

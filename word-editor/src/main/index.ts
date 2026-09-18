@@ -1,12 +1,14 @@
 // word-editor 插件主进程入口
-// TODO 7b + 2 + 5 + 9 接线：文档 CRUD / 导入导出 / 快照 / AI 对话
+//
+// 文档内容为 wordcanvas Document 模型 JSON（主进程仅作不透明字符串存储）。
+// 导入：主进程读 .docx 字节 → 交渲染端 wordcanvas 解析为 Document；
+// 导出：渲染端 wordcanvas 生成 Blob → 交主进程弹框落盘。
 
+import path from 'path'
 import fs from 'fs'
 import type { PluginContext, PluginMainModule } from '@workavatar/plugin-sdk'
-import { docStore, filesDir, createTaskWorkspace, isWithinTaskRoot, taskRootDir } from './doc-store'
-import { pickAndImportDocx, importDocx } from './docx-import'
-import { saveDocxFile, savePdfFile } from './docx-export'
-import { initDocSession, syncCurrentDoc, syncCurrentDocHtml, createDocAgentTools } from './doc-session'
+import { BLANK_DOCUMENT_JSON } from '../shared/blank-document'
+import { docStore, filesDir, createTaskWorkspace, isWithinTaskRoot } from './doc-store'
 import { DOC_SYSTEM_PROMPT } from './system-prompt'
 
 let ctxRef: PluginContext | null = null
@@ -25,6 +27,20 @@ function createDocId(): string {
   return `doc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
 
+/** 弹框选择 .docx；用户取消返回 null */
+async function pickDocxPath(): Promise<string | null> {
+  const { dialog } = require('electron')
+  const res = await dialog.showOpenDialog({
+    title: t('dialog.importDocx'),
+    properties: ['openFile'],
+    filters: [
+      { name: t('dialog.docxFilter'), extensions: ['docx'] },
+      { name: 'All', extensions: ['*'] },
+    ],
+  })
+  return res.canceled || !res.filePaths[0] ? null : res.filePaths[0]
+}
+
 function registerIpc(ctx: PluginContext): void {
   // ====== 文档 ======
   ctx.ipc.handle('doc-list', () => docStore.list())
@@ -32,10 +48,9 @@ function registerIpc(ctx: PluginContext): void {
   ctx.ipc.handle('doc-create', (payload: any) => {
     const title = (typeof payload?.title === 'string' && payload.title.trim()) || t('defaults.untitledDoc')
     const id = createDocId()
-    const html = payload?.html ? String(payload.html) : '<p></p>'
-    docStore.save(id, title, html)
+    docStore.save(id, title, payload?.data ? String(payload.data) : BLANK_DOCUMENT_JSON)
     docStore.setCurrentDocId(id)
-    syncCurrentDoc(id)
+    broadcast('doc-list-changed', { ts: Date.now() })
     return { doc: docStore.get(id) }
   })
 
@@ -45,15 +60,6 @@ function registerIpc(ctx: PluginContext): void {
     const rec = docStore.get(id)
     if (!rec) return { error: t('errors.docNotFound') }
     docStore.setCurrentDocId(id)
-    syncCurrentDoc(id)
-    return { doc: rec }
-  })
-
-  ctx.ipc.handle('doc-get', (payload: any) => {
-    const id = payload?.id
-    if (!id) return { error: t('errors.missingDocId') }
-    const rec = docStore.get(id)
-    if (!rec) return { error: t('errors.docNotFound') }
     return { doc: rec }
   })
 
@@ -61,10 +67,7 @@ function registerIpc(ctx: PluginContext): void {
     const id = payload?.id
     if (!id) return { error: t('errors.missingDocId') }
     docStore.delete(id)
-    if (docStore.getCurrentDocId() === id) {
-      docStore.setCurrentDocId(null)
-      syncCurrentDoc(null)
-    }
+    if (docStore.getCurrentDocId() === id) docStore.setCurrentDocId(null)
     broadcast('doc-list-changed', { ts: Date.now() })
     return { ok: true }
   })
@@ -75,75 +78,58 @@ function registerIpc(ctx: PluginContext): void {
     if (!id || typeof title !== 'string' || !title.trim()) return { error: t('errors.missingDocName') }
     docStore.setTitle(id, title.trim())
     broadcast('doc-list-changed', { ts: Date.now() })
-    const rec = docStore.get(id)
-    if (rec) broadcast('doc-changed', { doc: { id: rec.id, title: rec.title, html: rec.html }, source: 'self' })
     return { ok: true }
   })
 
-  // 渲染端自动保存：写正文（AI 镜像同步 + 自动创建快照由 separate 逻辑负责）
   ctx.ipc.handle('doc-save', (payload: any) => {
     const id = payload?.id
-    const html = payload?.html
+    const data = payload?.data
     const title = payload?.title
-    if (!id || typeof html !== 'string') return { error: t('errors.missingDocId') }
+    if (!id || typeof data !== 'string') return { error: t('errors.missingDocId') }
     const rec = docStore.get(id)
     if (!rec) return { error: t('errors.docNotFound') }
-    docStore.save(id, typeof title === 'string' && title.trim() ? title.trim() : rec.title, html)
+    docStore.save(id, typeof title === 'string' && title.trim() ? title.trim() : rec.title, data)
     docStore.setCurrentDocId(id)
-    syncCurrentDoc(id)
     return { ok: true, updatedAt: docStore.get(id)?.updatedAt ?? Date.now() }
   })
 
-  // AI 改动后的回写（渲染端应用远程 HTML 后 sync 回镜像，防会话态漂移）
-  ctx.ipc.handle('doc-sync', (payload: any) => {
-    const id = payload?.id
-    const html = payload?.html
-    if (id && typeof html === 'string') syncCurrentDocHtml(id, html)
-    return { ok: true }
-  })
-
-  // ====== 导入 ======
+  // ====== 导入：主进程读 .docx 字节，交渲染端 wordcanvas 解析 ======
   ctx.ipc.handle('doc-import-file', async (payload: any) => {
+    const absPath = payload?.path || await pickDocxPath()
+    if (!absPath) return {}
     try {
-      const result = payload?.path
-        ? await importDocx(ctx, String(payload.path), filesDir(ctx))
-        : await pickAndImportDocx(ctx, filesDir(ctx))
-      if (!result) return {}
-      const id = createDocId()
-      docStore.save(id, result.title || t('defaults.importName'), result.html, result.sourcePath)
-      docStore.setCurrentDocId(id)
-      syncCurrentDoc(id)
-      broadcast('doc-list-changed', { ts: Date.now() })
-      return { doc: docStore.get(id) }
+      const buf = fs.readFileSync(absPath)
+      // 原文件留档（溯源）
+      const safeName = `${Date.now().toString(36)}_${path.basename(absPath).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')}`
+      const dest = path.join(filesDir(ctx), safeName)
+      fs.writeFileSync(dest, buf)
+      return {
+        bytes: new Uint8Array(buf),
+        name: path.basename(absPath).replace(/\.docx$/i, ''),
+        sourcePath: dest,
+      }
     } catch (e) {
-      return { error: t('errors.docxParseFailed', { message: e instanceof Error ? e.message : String(e) }) }
+      return { error: t('errors.importFailed', { message: e instanceof Error ? e.message : String(e) }) }
     }
   })
 
-  // ====== 导出 ======
-  ctx.ipc.handle('export-docx', async (payload: any) => {
-    const id = payload?.id ?? docStore.getCurrentDocId()
-    const html = payload?.html ?? docStore.get(id)?.html
-    const title = payload?.title ?? docStore.get(id)?.title ?? 'document'
-    if (typeof html !== 'string') return { error: t('errors.noDoc') }
+  // ====== 导出：接收渲染端 wordcanvas 产出的字节并落盘 ======
+  ctx.ipc.handle('export-save', async (payload: any) => {
+    const { bytes, format, title } = payload ?? {}
+    if (!bytes) return { error: t('errors.exportFailed', { message: 'empty payload' }) }
+    const ext = format === 'pdf' ? 'pdf' : 'docx'
+    const { dialog } = require('electron')
+    const res = await dialog.showSaveDialog({
+      title: ext === 'pdf' ? t('dialog.exportPdf') : t('dialog.exportDocx'),
+      defaultPath: `${title || 'document'}.${ext}`,
+      filters: ext === 'pdf'
+        ? [{ name: t('dialog.pdfFilter'), extensions: ['pdf'] }]
+        : [{ name: t('dialog.docxFilter'), extensions: ['docx'] }],
+    })
+    if (res.canceled || !res.filePath) return { ok: false }
     try {
-      const r = await saveDocxFile(title, html)
-      if (!r.ok && r.error) return { error: t('errors.exportFailed', { message: r.error }) }
-      return r
-    } catch (e) {
-      return { error: t('errors.exportFailed', { message: e instanceof Error ? e.message : String(e) }) }
-    }
-  })
-
-  ctx.ipc.handle('export-pdf', async (payload: any) => {
-    const id = payload?.id ?? docStore.getCurrentDocId()
-    const html = payload?.html ?? docStore.get(id)?.html
-    const title = payload?.title ?? docStore.get(id)?.title ?? 'document'
-    if (typeof html !== 'string') return { error: t('errors.noDoc') }
-    try {
-      const r = await savePdfFile(title, html)
-      if (!r.ok && r.error) return { error: t('errors.exportFailed', { message: r.error }) }
-      return r
+      fs.writeFileSync(res.filePath, Buffer.from(bytes))
+      return { ok: true, path: res.filePath }
     } catch (e) {
       return { error: t('errors.exportFailed', { message: e instanceof Error ? e.message : String(e) }) }
     }
@@ -161,20 +147,16 @@ function registerIpc(ctx: PluginContext): void {
     if (!id) return { error: t('errors.missingDocId') }
     const rec = docStore.get(id)
     if (!rec) return { error: t('errors.docNotFound') }
-    const snap = docStore.createSnapshot(id, payload?.label || t('page.history'), html2str(rec.html))
-    return { snapshot: { id: snap.id, docId: snap.docId, label: snap.label, html: '', createdAt: snap.createdAt } }
+    docStore.createSnapshot(id, payload?.label || t('page.history'), rec.data)
+    return { ok: true }
   })
 
   ctx.ipc.handle('snapshot-restore', (payload: any) => {
     const snap = payload?.snapshotId ? docStore.getSnapshot(String(payload.snapshotId)) : null
-    if (!snap) return { error: 'snapshot not found' }
-    docStore.saveHtml(snap.docId, snap.html)
+    if (!snap) return { error: t('errors.docNotFound') }
+    docStore.saveData(snap.docId, snap.data)
     docStore.setCurrentDocId(snap.docId)
-    syncCurrentDoc(snap.docId)
-    broadcast('doc-changed', {
-      doc: { id: snap.docId, title: docStore.get(snap.docId)?.title ?? '', html: snap.html },
-      source: 'restore',
-    })
+    broadcast('doc-changed', { doc: { id: snap.docId, data: snap.data }, source: 'restore' })
     return { ok: true }
   })
 
@@ -184,46 +166,11 @@ function registerIpc(ctx: PluginContext): void {
     return { ok: true }
   })
 
-  // 划词内联 AI：单轮 LLM 改写选中文本
-  ctx.ipc.handle('inline-edit', async (payload: any, signal?: AbortSignal) => {
-    const execute = ctx.services.execute
-    if (!execute) return { error: t('errors.executeUnavailable') }
-    const { instruction, text } = payload ?? {}
-    if (typeof text !== 'string' || typeof instruction !== 'string') return { error: t('errors.missingTokens') }
-    let providerId = docStore.getSettings().defaultProviderId
-    if (!providerId) {
-      const data = ctx.services.data
-      if (data) {
-        const providers = (await data.query('llmProviders') as any[]) ?? []
-        providerId = (providers.find((p) => p.is_default) ?? providers[0])?.id
-      }
-    }
-    if (!providerId) return { error: t('errors.noProvider') }
-    try {
-      const result = await execute.execute(
-        {
-          kind: 'llm-chat',
-          providerId,
-          system: '你是文字编辑助手。直接输出处理后的文字本体，不要任何解释、前缀、引用标记或 Markdown 代码块。',
-          messages: [{ role: 'user', content: `${instruction}\n\n原文：\n${text}` }],
-          useSkills: false,
-          enableThinking: false
-        },
-        undefined,
-        signal
-      ) as { content?: string; text?: string }
-      const output = typeof result === 'string' ? result : (result?.content ?? result?.text ?? '')
-      return { text: String(output).trim() }
-    } catch (e) {
-      return { error: e instanceof Error ? e.message : String(e) }
-    }
-  })
-
   // ====== 供应商（复用宿主数据能力） ======
   ctx.ipc.handle('providers-list', async () => {
     const data = ctx.services.data
     if (!data) return []
-    return data.query('llmProviders') as any[]
+    return (await data.query('llmProviders')) as any[]
   })
 
   // ====== 设置 ======
@@ -250,7 +197,7 @@ function registerIpc(ctx: PluginContext): void {
     if (!resolvedProviderId) {
       const data = ctx.services.data
       if (data) {
-        const providers = (await data.query('llmProviders') as any[]) ?? []
+        const providers = ((await data.query('llmProviders')) as any[]) ?? []
         const def = providers.find((p) => p.is_default) ?? providers[0]
         resolvedProviderId = def?.id
         if (!resolvedModelId) resolvedModelId = def?.model
@@ -280,10 +227,8 @@ function registerIpc(ctx: PluginContext): void {
     } else {
       workspacePath = docStore.getChatWorkspacePath(conversationId)
     }
-    const doc = docStore.getCurrentDoc()
     const system = buildChatSystem(DOC_SYSTEM_PROMPT, workspacePath)
 
-    // 请求前同步最新文档到工具会话（渲染端刚编辑未保存的场景，渲染端发消息前先 doc-save）
     let lastConvId: string | null = isNewConv ? null : convId
 
     try {
@@ -295,13 +240,13 @@ function registerIpc(ctx: PluginContext): void {
           messages,
           conversationId: convId,
           system,
-          tools: createDocAgentTools(),
+          tools: [],
           useSkills: false,
           enableThinking: true,
           minimalMode: false,
           highPermission: false,
           enableBuiltinTools: true,
-          workspacePath: workspacePath ?? undefined
+          workspacePath: workspacePath ?? undefined,
         },
         {
           onChunk: (text) => { acc += text; broadcast('chat-event', { type: 'chunk', text }) },
@@ -314,7 +259,7 @@ function registerIpc(ctx: PluginContext): void {
           onError: (error) => {
             errText = error
             broadcast('chat-event', { type: 'error', error })
-          }
+          },
         },
         mergedSignal
       )
@@ -325,12 +270,16 @@ function registerIpc(ctx: PluginContext): void {
         const userMsg = { id: lastMsg?.id, role: 'user' as const, content: lastMsg?.content ?? '' }
         const assistantMsg: Record<string, unknown> = { id: payload?.assistantId, role: 'assistant', content: acc }
         if (thought) assistantMsg.reasoning_content = thought
-        if (errText) assistantMsg.content = (assistantMsg.content as string) + (acc ? `\n\n[错误] ${errText}` : `[错误] ${errText}`)
+        if (errText) assistantMsg.content = `${assistantMsg.content as string}${acc ? '\n\n' : ''}[错误] ${errText}`
         const hasUser = existing.some((m) => (m as any).role === 'user' && (m as any).content === userMsg.content)
         try {
           docStore.saveMessages(lastConvId, [...(hasUser ? existing : [...existing, userMsg]), assistantMsg])
-          const title = lastMsg?.content?.slice(0, 40) || t('chat.defaultTitle')
-          docStore.saveChat({ conversationId: lastConvId, title, updatedAt: Date.now(), workspacePath })
+          docStore.saveChat({
+            conversationId: lastConvId,
+            title: lastMsg?.content?.slice(0, 40) || t('chat.defaultTitle'),
+            updatedAt: Date.now(),
+            workspacePath,
+          })
           broadcast('chats-changed', { ts: Date.now() })
         } catch (e) {
           ctx.services.logger.warn('持久化对话消息失败:', e instanceof Error ? e.message : String(e))
@@ -354,7 +303,7 @@ function registerIpc(ctx: PluginContext): void {
     return { ok: true }
   })
 
-  ctx.ipc.handle('chat-history', async (payload: any) => {
+  ctx.ipc.handle('chat-history', (payload: any) => {
     if (!payload?.conversationId) return []
     return docStore.getMessages(payload.conversationId)
   })
@@ -363,7 +312,7 @@ function registerIpc(ctx: PluginContext): void {
 
   ctx.ipc.handle('chat-delete', (payload: any) => {
     const convId = payload?.conversationId
-    if (!convId) return { error: t('errors.missingDocId') }
+    if (!convId) return { error: t('errors.missingTokens') }
     const ws = docStore.getChatWorkspacePath(convId)
     docStore.deleteChat(convId)
     broadcast('chats-changed', { ts: Date.now() })
@@ -378,51 +327,39 @@ function registerIpc(ctx: PluginContext): void {
     return { ok: true, taskDir, taskDirNonEmpty }
   })
 
-  // 打开对话的任务工作区目录
   ctx.ipc.handle('chat-open-dir', (payload: any) => {
     const ws = payload?.conversationId ? docStore.getChatWorkspacePath(payload.conversationId) : null
-    if (!ws || !fs.existsSync(ws)) return { ok: false, error: t('errors.noDoc') }
+    if (!ws || !fs.existsSync(ws)) return { ok: false, error: t('errors.workspaceNotFound') }
     try {
       const { shell } = require('electron')
       if (shell?.openPath) shell.openPath(ws)
     } catch { /* ignore */ }
     return { ok: true }
   })
-
-  // AI 对话的任务工作区路径（渲染端展示"打开任务文件夹"）
-  ctx.ipc.handle('data-dir', () => ({ dataDir: ctx.paths.data }))
-  ctx.ipc.handle('tasks-dir', () => ({ tasksDir: taskRootDir(ctx) }))
 }
 
 function buildChatSystem(base: string, workspacePath: string | null): string {
   const doc = docStore.getCurrentDoc()
   const docInfo = doc
-    ? `\n\n当前打开的文档：《${doc.title}》（id=${doc.id}）。用户提出文档修改需求时，用上面的 doc_* 工具直接修改；先 doc_get_outline 了解结构再动手。完成后简要说明做了什么。`
-    : '\n\n当前没有打开的文档，doc_* 工具不可用，请提示用户先在编辑器中打开/新建文档。'
+    ? `\n\n当前打开的文档：《${doc.title}》。`
+    : '\n\n当前没有打开的文档。'
   const ws = workspacePath
     ? `\n\n当前任务工作区目录：${workspacePath}\n该目录为本次对话的专属任务文件夹，可用 file_read / file_write / file_edit / shell_exec 读取、写入其中的文件。`
     : ''
   return base + docInfo + ws
 }
 
-function html2str(s: string): string { return s }
-
 export const migrations = []
 
 export function activate(ctx: PluginContext): void {
   ctxRef = ctx
   docStore.init(ctx)
-  initDocSession(ctx)
 
-  // 激活时默认打开最近文档（若有），便于 AI 工具尽早可用
+  // 默认打开最近文档，便于后续能力尽快可用
   const docs = docStore.list()
-  if (docs.length > 0) {
-    docStore.setCurrentDocId(docs[0].id)
-    syncCurrentDoc(docs[0].id)
-  }
+  if (docs.length > 0) docStore.setCurrentDocId(docs[0].id)
 
   registerIpc(ctx)
-  ctx.contributions.registerAgentTools(createDocAgentTools())
 
   const events = ctx.services.events
   if (events) {

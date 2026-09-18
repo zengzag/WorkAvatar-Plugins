@@ -14,7 +14,7 @@ function formatTime(ts: number): string {
 
 export function SnapshotsPanel({ onClose }: { onClose: () => void }) {
   const snapshots = useWordEditorStore((s) => s.snapshots)
-  const { loadSnapshots, restoreSnapshot, deleteSnapshot } = useWordEditorStore.getState()
+  const { loadSnapshots, deleteSnapshot } = useWordEditorStore.getState()
   const { message } = App.useApp()
 
   useEffect(() => { void loadSnapshots() }, [])

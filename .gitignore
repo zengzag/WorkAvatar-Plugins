@@ -13,6 +13,9 @@ release/
 out/
 build/
 
+# 插件 vendor 产物（构建时从 node_modules 拷贝并由 patch 脚本改写，不提交）
+vendor/
+
 # =====================================
 # IDE and Editors
 # =====================================

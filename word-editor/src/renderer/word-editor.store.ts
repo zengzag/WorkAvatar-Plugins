@@ -1,18 +1,41 @@
 // word-editor 渲染端状态（zustand）
 
 import { create } from 'zustand'
-import { we, hostT } from './store'
+import { we, hostT, type DocRecord, type SnapshotMeta } from './store'
 import type { GenericChatViewMessage, GenericChatViewSegment } from '@workavatar/plugin-sdk/renderer'
-import type { SnapshotMeta } from './store'
 
 export type ChatMessage = GenericChatViewMessage
 
-export type SaveState = 'saved' | 'dirty' | 'saving'
+/** 编辑器桥：由 WordCanvasHost 挂载后注册，store 经此读写文档 */
+export interface EditorBridge {
+  /** 当前文档的 Document JSON */
+  getData: () => string
+  /** 轻量变更签名（blocks 数 + revision 和），用于轮询检测改动 */
+  getSignature: () => string
+  /** 用 Document JSON 替换编辑器内容 */
+  setDocument: (data: string) => void
+  /** 用 .docx 字节打开（导入） */
+  openDocx: (bytes: Uint8Array) => Promise<void>
+  /** 导出为 docx / pdf 字节 */
+  exportDocx: () => Promise<Uint8Array>
+  exportPdf: () => Promise<Uint8Array>
+}
+
+export interface EditorBridgeHandle {
+  getData: () => string
+  getSignature: () => string
+  setDocument: (data: string) => void
+  openDocx: (bytes: Uint8Array) => Promise<void>
+  exportDocx: () => Promise<Uint8Array>
+  exportPdf: () => Promise<Uint8Array>
+}
 
 interface WordEditorState {
-  docs: Array<{ id: string; title: string; updatedAt: number; sourcePath?: string | null }>
-  doc: (DocRecord & { html: string }) | null
-  saveState: SaveState
+  docs: Array<Omit<DocRecord, 'data'>>
+  doc: DocRecord | null
+  /** 有未保存改动 */
+  dirty: boolean
+  saving: boolean
   snapshots: SnapshotMeta[]
   // AI 对话
   messages: ChatMessage[]
@@ -28,15 +51,20 @@ interface WordEditorState {
   settingsOpen: boolean
 
   loadDocs: () => Promise<void>
+  /** 直接应用一条文档记录（初始化 / 服务端返回时用，不触发编辑器重建） */
+  applyDoc: (record: DocRecord) => void
   createDoc: (title?: string) => Promise<void>
   openDoc: (id: string) => Promise<void>
   deleteDoc: (id: string) => Promise<void>
   renameDoc: (id: string, title: string) => Promise<void>
-  /** 编辑器内容变更：标脏 + 同步镜像 + 防抖保存 */
-  updateHtml: (html: string) => void
+  /** 从编辑器同步脏状态（轮询调用） */
+  syncDirty: () => void
+  /** 保存当前文档 */
   flushSave: () => Promise<void>
-  exportDocx: (html: string) => Promise<string | null>
-  exportPdf: (html: string) => Promise<string | null>
+  /** 导入 .docx（可选指定路径） */
+  importDoc: (path?: string) => Promise<string | null>
+  /** 导出当前文档（docx / pdf），返回错误文案或 null */
+  exportDoc: (format: 'docx' | 'pdf') => Promise<string | null>
 
   loadSnapshots: () => Promise<void>
   createSnapshot: (label?: string) => Promise<void>
@@ -60,28 +88,34 @@ interface WordEditorState {
 
   toggleAiPanel: (open?: boolean) => void
   setSettingsOpen: (open: boolean) => void
-
-  /** 渲染端打开/导入文档的本地动作（由页面调用主进程 IPC 后应用） */
-  applyDoc: (doc: { id: string; title: string; html: string; sourcePath?: string | null; updatedAt?: number }) => void
-  /** 导入 docx（pathStorage 可选，来自 FileViewerModal "编辑文档"跳转） */
-  importDoc: (path?: string) => Promise<string | null>
 }
 
-type DocRecord = { id: string; title: string; updatedAt: number; sourcePath: string | null }
+/** 编辑器桥 + 变更轮询（wordcanvas 无文档变更事件，用 revision 签名轮询检测） */
+let editorBridge: EditorBridge | null = null
+let pollTimer: ReturnType<typeof setInterval> | null = null
+let lastSignature = ''
 
-// 编辑器桥（EditorCanvas 挂载时注册）：flushSave 时取最新 HTML
-let editorSync: { getHtml: () => string } | null = null
-let saveTimer: ReturnType<typeof setTimeout> | null = null
-const SAVE_DEBOUNCE_MS = 800
+const POLL_MS = 2500
 
-export function registerEditorSync(sync: { getHtml: () => string } | null): void {
-  editorSync = sync
+export function registerEditorBridge(bridge: EditorBridge | null): void {
+  editorBridge = bridge
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+  if (!bridge) {
+    lastSignature = ''
+    return
+  }
+  lastSignature = bridge.getSignature()
+  pollTimer = setInterval(() => useWordEditorStore.getState().syncDirty(), POLL_MS)
 }
 
 export const useWordEditorStore = create<WordEditorState>((set, get) => ({
   docs: [],
   doc: null,
-  saveState: 'saved',
+  dirty: false,
+  saving: false,
   snapshots: [],
   messages: [],
   isStreaming: false,
@@ -96,37 +130,35 @@ export const useWordEditorStore = create<WordEditorState>((set, get) => ({
   settingsOpen: false,
 
   loadDocs: async () => {
-    set({ docs: (await we.listDocs()) as any })
+    set({ docs: await we.listDocs() })
   },
 
-  applyDoc: (doc) => {
-    set({
-      doc: {
-        id: doc.id, title: doc.title, html: doc.html,
-        updatedAt: doc.updatedAt ?? Date.now(),
-        sourcePath: doc.sourcePath ?? null,
-      },
-      saveState: 'saved',
-      snapshots: [],
-    })
+  applyDoc: (record) => {
+    set({ doc: record, dirty: false, snapshots: [] })
   },
 
   createDoc: async (title) => {
     const res = await we.createDoc(title)
-    if (res.doc) {
-      get().applyDoc(res.doc)
+    if ('doc' in res && res.doc) {
+      set({ doc: res.doc, dirty: false, snapshots: [] })
       await get().loadDocs()
     }
   },
 
   openDoc: async (id) => {
+    // 切换前先保存当前文档
+    if (get().dirty) await get().flushSave()
     const res = await we.openDoc(id)
-    if ('doc' in res && res.doc) get().applyDoc(res.doc)
+    if ('doc' in res && res.doc) {
+      set({ doc: res.doc, dirty: false, snapshots: [] })
+    } else if ('error' in res) {
+      throw new Error(hostT(res.error))
+    }
   },
 
   deleteDoc: async (id) => {
     await we.deleteDoc(id)
-    if (get().doc?.id === id) set({ doc: null })
+    if (get().doc?.id === id) set({ doc: null, dirty: false })
     await get().loadDocs()
   },
 
@@ -137,54 +169,61 @@ export const useWordEditorStore = create<WordEditorState>((set, get) => ({
     await get().loadDocs()
   },
 
-  updateHtml: (html) => {
-    const { doc } = get()
-    if (!doc) return
-    set({ saveState: 'dirty' })
-    if (html !== doc.html) {
-      set({ doc: { ...doc, html } })
-      void we.syncDoc(doc.id, html)
+  syncDirty: () => {
+    if (!editorBridge || !get().doc) return
+    const sig = editorBridge.getSignature()
+    if (sig !== lastSignature) {
+      lastSignature = sig
+      if (!get().dirty) set({ dirty: true })
     }
-    if (saveTimer) clearTimeout(saveTimer)
-    saveTimer = setTimeout(() => { saveTimer = null; void get().flushSave() }, SAVE_DEBOUNCE_MS)
   },
 
   flushSave: async () => {
     const state = get()
-    if (!state.doc) return
-    const html = editorSync ? editorSync.getHtml() : state.doc.html
-    if (state.saveState === 'saved' && html === state.doc.html) return
-    set({ saveState: 'saving' })
-    const res = await we.saveDoc(state.doc.id, html, state.doc.title)
-    if (res?.ok) {
-      set({ doc: { ...state.doc, html, updatedAt: res.updatedAt }, saveState: 'saved' })
+    if (!state.doc || !editorBridge) return
+    const data = editorBridge.getData()
+    if (!data) return
+    set({ saving: true })
+    const res = await we.saveDoc(state.doc.id, data, state.doc.title)
+    lastSignature = editorBridge.getSignature()
+    if ('ok' in res && res.ok) {
+      set({ doc: { ...state.doc, data, updatedAt: res.updatedAt }, dirty: false, saving: false })
     } else {
-      set({ saveState: 'dirty' })
+      set({ saving: false })
     }
-  },
-
-  exportDocx: async (html) => {
-    const cur = get().doc
-    if (!cur) return hostT('doc.importing')
-    const res = await we.exportDocx({ html, title: cur.title })
-    return ('error' in res && res.error) || null
-  },
-
-  exportPdf: async (html) => {
-    const cur = get().doc
-    if (!cur) return hostT('doc.importing')
-    const res = await we.exportPdf({ html, title: cur.title })
-    return ('error' in res && res.error) || null
   },
 
   importDoc: async (path) => {
     const res = await we.importDocx(path)
-    if ('doc' in res && res.doc) {
-      get().applyDoc(res.doc)
-      await get().loadDocs()
-      return null
+    if (!res?.bytes) return res?.error ?? null
+    if (!editorBridge) return hostT('page.editorNotReady')
+    try {
+      await editorBridge.openDocx(res.bytes)
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e)
     }
-    return ('error' in res && res.error) || null
+    // wordcanvas 解析完成 → 取 Document 存为插件文档
+    const data = editorBridge.getData()
+    const created = await we.createDoc(res.name || hostT('defaults.importName'), data)
+    if ('doc' in created && created.doc) {
+      await we.renameDoc(created.doc.id, res.name || hostT('defaults.importName'))
+      set({ doc: { ...created.doc, title: res.name || hostT('defaults.importName'), sourcePath: res.sourcePath ?? null }, dirty: false, snapshots: [] })
+      await get().loadDocs()
+    }
+    lastSignature = editorBridge.getSignature()
+    return null
+  },
+
+  exportDoc: async (format) => {
+    if (!editorBridge) return hostT('page.editorNotReady')
+    try {
+      const bytes = format === 'pdf' ? await editorBridge.exportPdf() : await editorBridge.exportDocx()
+      const title = get().doc?.title || 'document'
+      const res = await we.exportSave(bytes, format, title)
+      return res?.error ?? null
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e)
+    }
   },
 
   loadSnapshots: async () => {
@@ -197,8 +236,7 @@ export const useWordEditorStore = create<WordEditorState>((set, get) => ({
   createSnapshot: async (label) => {
     const cur = get().doc
     if (!cur) return
-    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
-    await get().flushSave()
+    if (get().dirty) await get().flushSave()
     await we.createSnapshot(cur.id, label)
     await get().loadSnapshots()
   },
@@ -235,7 +273,7 @@ export const useWordEditorStore = create<WordEditorState>((set, get) => ({
   },
 
   loadChats: async () => {
-    set({ chats: (await we.listChats()) as any })
+    set({ chats: await we.listChats() })
   },
 
   newChat: () => {
@@ -253,7 +291,7 @@ export const useWordEditorStore = create<WordEditorState>((set, get) => ({
       thought: m.reasoning_content,
       images: Array.isArray(m.images) ? m.images : undefined,
       segments: Array.isArray(m.segments) ? m.segments : undefined,
-      isStreaming: false
+      isStreaming: false,
     }))
     const ws = get().chats.find((c) => c.conversationId === conversationId)?.workspacePath ?? null
     set({ messages: msgs, conversationId, workspacePath: ws, isStreaming: false })
@@ -271,7 +309,7 @@ export const useWordEditorStore = create<WordEditorState>((set, get) => ({
     await we.openChatDir(conversationId)
   },
 
-  deleteMessage: async (msgId) => {
+  deleteMessage: (msgId) => {
     const msgs = get().messages
     const idx = msgs.findIndex((m) => m.id === msgId)
     if (idx === -1 || get().isStreaming) return
@@ -300,9 +338,7 @@ export const useWordEditorStore = create<WordEditorState>((set, get) => ({
       set({ chatError: 'errors.noProvider' })
       return
     }
-    // 发送前先保存（确保 AI 工具看到最新正文）
-    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
-    await get().flushSave()
+    if (get().dirty) await get().flushSave()
 
     const now = Date.now()
     const userMsg: ChatMessage = { id: `msg_${now}_u`, role: 'user', content: text, timestamp: now, images }
@@ -320,23 +356,21 @@ export const useWordEditorStore = create<WordEditorState>((set, get) => ({
       modelId: selectedModelId ?? undefined,
       messages: [...history, { id: userMsg.id, role: 'user', content: text, images }],
       assistantId: assistantMsg.id,
-      conversationId: conversationId ?? undefined
+      conversationId: conversationId ?? undefined,
     })
 
     if ('error' in res) {
       set((state) => {
         const msgs = [...state.messages]
         const last = msgs[msgs.length - 1]
-        if (last && last.role === 'assistant') {
-          msgs[msgs.length - 1] = { ...last, isStreaming: false, isError: true }
-        }
+        if (last && last.role === 'assistant') msgs[msgs.length - 1] = { ...last, isStreaming: false, isError: true }
         return { messages: msgs, isStreaming: false, chatError: res.error }
       })
       return
     }
-    const conversRes = res as { conversationId?: string; workspacePath?: string | null }
-    if (conversRes?.conversationId) {
-      set({ conversationId: conversRes.conversationId, workspacePath: conversRes.workspacePath ?? null })
+    const convRes = res as { conversationId?: string; workspacePath?: string | null }
+    if (convRes?.conversationId) {
+      set({ conversationId: convRes.conversationId, workspacePath: convRes.workspacePath ?? null })
     }
     await get().loadChats()
   },
@@ -350,7 +384,7 @@ export const useWordEditorStore = create<WordEditorState>((set, get) => ({
   setSettingsOpen: (open) => set({ settingsOpen: open }),
 }))
 
-// ====== 对话流式事件 → segments（与 data-model 插件一致的简化版） ======
+// ====== 对话流式事件 → segments ======
 
 let chatEventReady = false
 
@@ -438,7 +472,7 @@ function applyChatEvent(msgs: ChatMessage[], payload: any): ChatMessage[] {
       const delta = payload.delta ?? {}
       const argsText = delta.arguments ?? ''
       const updated = finalizeStreamingSegs(segs)
-      let i = delta.id
+      const i = delta.id
         ? updated.findIndex((s) => s.type === 'tool_call' && s.toolCallId === delta.id && !s.isToolComplete)
         : updated.findIndex((s) => s.type === 'tool_call' && s.isToolArgsStreaming === true && !s.isToolComplete)
       if (i === -1) {
@@ -449,16 +483,22 @@ function applyChatEvent(msgs: ChatMessage[], payload: any): ChatMessage[] {
           collapsed: false, timestamp: Date.now(),
         })
       } else {
-        updated[i] = { ...updated[i], toolName: delta.name || updated[i].toolName, toolArgsRaw: (updated[i].toolArgsRaw || '') + argsText, toolCallId: delta.id || updated[i].toolCallId }
+        updated[i] = {
+          ...updated[i], toolName: delta.name || updated[i].toolName,
+          toolArgsRaw: (updated[i].toolArgsRaw || '') + argsText, toolCallId: delta.id || updated[i].toolCallId,
+        }
       }
       return [...msgs.slice(0, -1), { ...last, segments: updated }]
     }
     case 'tool-call': {
       const tc = payload.toolCall ?? {}
       const updated = finalizeStreamingSegs(segs)
-      let i = updated.findIndex((s) => s.type === 'tool_call' && !s.isToolComplete && (s.isToolArgsStreaming === true || s.toolCallId === tc.id))
+      const i = updated.findIndex((s) => s.type === 'tool_call' && !s.isToolComplete && (s.isToolArgsStreaming === true || s.toolCallId === tc.id))
       if (i !== -1) {
-        updated[i] = { ...updated[i], toolName: tc.name, toolArgs: tc.arguments, toolArgsRaw: undefined, isToolArgsStreaming: false, toolCallId: tc.id, collapsed: true }
+        updated[i] = {
+          ...updated[i], toolName: tc.name, toolArgs: tc.arguments, toolArgsRaw: undefined,
+          isToolArgsStreaming: false, toolCallId: tc.id, collapsed: true,
+        }
       } else {
         updated.push({
           type: 'tool_call', id: `${last.id}_tool_${updated.length}`,
@@ -497,7 +537,7 @@ function applyChatEvent(msgs: ChatMessage[], payload: any): ChatMessage[] {
       return [...msgs.slice(0, -1), { ...last, segments: finalized, isStreaming: false }]
     }
     case 'error': {
-      const error = payload.error ?? hostT('inline.generating')
+      const error = payload.error ?? hostT('chat.defaultTitle')
       const finalized = finalizeToolSegments(segs, error).map((s) => ({
         ...s, isStreaming: false, completedAt: s.completedAt || Date.now(),
         ...(s.type === 'thinking' ? { collapsed: true } : {}),

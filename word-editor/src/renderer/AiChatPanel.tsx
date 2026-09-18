@@ -32,10 +32,6 @@ export function AiChatPanel() {
     return unsub
   }, [])
 
-  const handleDeleteChat = (convId: string) => {
-    void deleteChat(convId)
-  }
-
   const handleSend = (text: string, images?: string[]) => {
     if (!useWordEditorStore.getState().doc) return
     void sendMessage(text, images)

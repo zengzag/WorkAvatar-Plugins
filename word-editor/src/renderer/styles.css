@@ -1,154 +1,167 @@
-/* word-editor 插件样式：明暗主题自适应 */
+/* word-editor 插件样式：明暗主题自适应
+   编辑器画布与 Ribbon 由 wordcanvas（canvas 渲染 + 自带主题）负责，
+   此处只承载宿主侧的页面骨架（顶栏 / 侧栏 / 加载态）、编辑器适配与深色外壳覆盖。 */
 
 :root {
   --we-bg: #ffffff;
-  --we-page-bg: #f5f5f5;
-  --we-text: #1f1f1f;
   --we-muted: #8c8c8c;
   --we-border: #e8e8e8;
-  --we-primary: #2b579a;
-  --we-primary-soft: rgba(43, 87, 154, 0.12);
   --we-hover: rgba(0, 0, 0, 0.04);
 }
 
 [data-theme='dark'] {
   --we-bg: #141414;
-  --we-page-bg: #1a1a1a;
-  --we-text: #e0e0e0;
   --we-muted: #8c8c8c;
   --we-border: #303030;
-  --we-primary: #6b9fd8;
-  --we-primary-soft: rgba(107, 159, 216, 0.2);
   --we-hover: rgba(255, 255, 255, 0.06);
 }
 
-/* ====== 画布与 A4 页面 ====== */
+/* 深色编辑器外壳调色（仅用于下方 [data-theme='dark'] 覆盖；页面纸张仍为白色，
+   保证打印/导出保真） */
+[data-theme='dark'] {
+  --wc-bg: #232323; /* 外壳底（Ribbon / 大纲 / 修订面板） */
+  --wc-bg-2: #333333; /* 次级面（面板头尾、侧栏、列表） */
+  --wc-bg-pop: #2b2b2b; /* 面板 / 弹层底（与上游 ctxbar/fmtbar 深色一致） */
+  --wc-line: #4a4a4a; /* 描边 / 分隔线（同上） */
+  --wc-text: #e6e6e6; /* 正文 */
+  --wc-text-dim: #a8a8a8; /* 次要文字（标签 / 提示 / 分区标题） */
+  --wc-hover: rgba(255, 255, 255, 0.1);
+  --wc-press: rgba(255, 255, 255, 0.16);
+  --wc-btn-bg: #3c3c3c; /* 面板内按钮 / 符号格 */
+  --wc-btn-hover: #4a4a4a;
+  --wc-active-bg: #1e3a5f; /* 选中态底 */
+  --wc-active-text: #9cc3f5; /* 选中态前景 */
+  --wc-input-bg: #1e1e1e; /* 输入框 / 下拉框底 */
+  --wc-accent: #1f4c86;
+}
 
-.we-canvas-scroll {
+/* ====== 页面骨架 ====== */
+
+.we-page-root {
+  display: flex;
+  flex-direction: column;
   height: 100%;
-  overflow-y: auto;
-  background: var(--we-page-bg);
-  padding: 24px 0 48px;
-}
-
-.we-page {
-  width: 794px;
-  min-height: 1000px;
-  margin: 0 auto;
   background: var(--we-bg);
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.15);
-  border-radius: 4px;
-  padding: 48px 56px;
-  color: var(--we-text);
 }
 
-.we-prose {
-  outline: none;
-  font-size: 15px;
-  line-height: 1.8;
-}
-
-.we-prose h1 { font-size: 26px; font-weight: 700; margin: 20px 0 12px; line-height: 1.3; }
-.we-prose h2 { font-size: 22px; font-weight: 700; margin: 18px 0 10px; line-height: 1.3; }
-.we-prose h3 { font-size: 19px; font-weight: 600; margin: 16px 0 8px; }
-.we-prose h4 { font-size: 17px; font-weight: 600; margin: 14px 0 8px; }
-.we-prose h5 { font-size: 15px; font-weight: 600; margin: 12px 0 6px; }
-.we-prose h6 { font-size: 14px; font-weight: 600; margin: 12px 0 6px; color: var(--we-muted); }
-.we-prose p { margin: 6px 0; }
-.we-prose ul, .we-prose ol { padding-left: 24px; margin: 6px 0; }
-.we-prose blockquote {
-  border-left: 3px solid var(--we-primary);
-  margin: 8px 0;
-  padding: 4px 12px;
-  color: var(--we-muted);
-}
-.we-prose pre {
-  background: var(--we-page-bg);
-  border: 1px solid var(--we-border);
-  border-radius: 4px;
-  padding: 10px 12px;
-  font-family: 'JetBrains Mono', Consolas, monospace;
-  font-size: 13px;
-  overflow-x: auto;
-}
-.we-prose code {
-  font-family: 'JetBrains Mono', Consolas, monospace;
-  font-size: 13px;
-  background: var(--we-hover);
-  border-radius: 3px;
-  padding: 1px 4px;
-}
-.we-prose table {
-  border-collapse: collapse;
-  width: 100%;
-  margin: 10px 0;
-}
-.we-prose td, .we-prose th {
-  border: 1px solid var(--we-border-strong, #d9d9d9);
-  padding: 6px 10px;
-  vertical-align: top;
-  position: relative;
-}
-.we-prose th { background: var(--we-hover); font-weight: 600; }
-.we-prose .selectedCell::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: var(--we-primary-soft);
-  pointer-events: none;
-}
-.we-prose img { max-width: 100%; border-radius: 4px; }
-.we-prose hr {
-  border: none;
-  border-top: 1px solid var(--we-border-strong, #d9d9d9);
-  margin: 16px 0;
-}
-
-/* ====== 划词 AI 浮动条 ====== */
-
-.we-bubble {
+.we-topbar {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--we-border);
+  flex-shrink: 0;
+}
+
+.we-main {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.we-editor-area {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.we-side-panel {
+  flex-shrink: 0;
+  border-left: 1px solid var(--we-border);
   background: var(--we-bg);
-  border: 1px solid var(--we-border);
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
-.we-btn {
-  border: none;
-  background: transparent;
-  color: var(--we-text);
-  font-size: 12px;
-  padding: 4px 8px;
+.we-side-header {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--we-border);
+}
+
+.we-side-title {
+  font-weight: 600;
+  font-size: 13px;
+  flex: 1;
+}
+
+.we-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--we-muted);
+  background: var(--we-bg);
+}
+
+/* ====== wordcanvas 宿主 ====== */
+
+.we-host {
+  position: relative;
+  height: 100%;
+}
+
+.we-host-container {
+  position: absolute;
+  inset: 0;
+}
+
+.we-host-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--we-bg);
+}
+
+.we-host-loading-text {
+  font-size: 13px;
+  color: var(--we-muted);
+}
+
+/* Ribbon 面板宽度适配：上游 Ribbon 面板宽度固定（开始选项卡自然宽度约 1606px），容器变窄时
+   上游默认 overflow:visible，会被 .wordcanvas-root 的 overflow-x:hidden 裁掉右侧按钮（工具不可达）。
+   这里统一改为横向滚动 + 可见滚动条，保证任意窗口宽度下都能访问全部按钮。
+   （试过「分组折行」，实测钮位置下移更难看且并非上游设计，已回退。） */
+.we-host .cw-toolbar .rib-panel.active {
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap;
+  /* 中文可在任意字符处换行：不锁行的话，被压缩的分组/按钮会退化成单字宽、
+     文字折行溢出 26px 定高按钮，出现文字重叠。锁行后由面板横向滚动承载。 */
+  white-space: nowrap;
+}
+
+.we-host .cw-toolbar .rib-panel.active::-webkit-scrollbar {
+  height: 8px;
+}
+
+.we-host .cw-toolbar .rib-panel.active::-webkit-scrollbar-thumb {
+  background: var(--we-muted);
   border-radius: 4px;
-  cursor: pointer;
 }
-.we-btn:hover { background: var(--we-hover); }
-.we-btn:disabled { opacity: 0.5; cursor: default; }
-.we-btn-primary {
-  background: var(--we-primary);
-  color: #fff;
+
+/* Ribbon / 状态栏 / 上下文工具条内的文字一律不换行（同上：避免折行溢出重叠）。
+   上下文工具条由上游挂在 document.body 上，故不加 .we-host 作用域（cw-* 类名全应用唯一）。 */
+.we-host .cw-toolbar button,
+.we-host .cw-toolbar .rib-label,
+.we-host .cw-toolbar select,
+.we-host .cw-statusbar,
+.cw-ctxbar button {
+  white-space: nowrap;
 }
-.we-btn-primary:hover { opacity: 0.9; background: var(--we-primary); }
 
-.we-inline-loading { font-size: 12px; color: var(--we-muted); padding: 4px 8px; }
-
-.we-inline-preview { max-width: 320px; }
-.we-inline-text {
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--we-text);
-  max-height: 160px;
-  overflow-y: auto;
-  padding: 4px 8px;
-  white-space: pre-wrap;
-}
-.we-inline-actions { display: flex; gap: 4px; padding: 2px 4px 0; }
-
-/* ====== 快照列表行 ====== */
+/* ====== 版本历史列表行 ====== */
 
 .we-snapshot-row {
   display: flex;
@@ -157,4 +170,628 @@
   padding: 8px;
   border-radius: 6px;
 }
-.we-snapshot-row:hover { background: var(--we-hover); }
+
+.we-snapshot-row:hover {
+  background: var(--we-hover);
+}
+
+/* ====== 深色主题：编辑器外壳（Ribbon / 标尺 / 面板 / 弹层 / 状态栏）======
+
+   wordcanvas 内置的 darkCanvasTheme 只处理画布留白与标尺底色，Ribbon、弹出面板、
+   对话框、状态栏等外壳颜色是硬编码浅色。这里在 [data-theme='dark'] 下统一覆盖为深色，
+   只保留「纸张」为白色（纸张由画布绘制，不受 CSS 影响，导出/打印保真）。
+   说明：
+   - 上游样式表在编辑器挂载时才注入（晚于本文件），故每条覆盖都带 [data-theme='dark']
+     属性前缀以获得更高优先级；
+   - 面板/弹层由上游挂在 document.body 上（不在插件容器内），故不限定 .we-host 作用域
+     （cw-* 类名全应用唯一）；
+   - 面板选择器按上游各对话框的类名前缀族列举：tbl（插入表格）/ pdlg（边框和底纹）/
+     pl（页面布局）/ sm（管理样式）/ sp（页面设置）/ fc（域）/ font（字体）/
+     sdt（内容控件）/ toc（目录）/ orgpg（整理页面），另有 symp（符号）与 eqe（公式）
+     两个独立弹层。分组顺序：容器 → 次级面 → 输入控件 → 按钮 → 选中态 → 次要文字 → 纸面。 */
+
+/* --- ① 面板容器：对话框 / 弹层 / 浮动面板统一深色底 + 描边 + 正文色 --- */
+[data-theme='dark'] :is(
+  .cw-tbl-modal, .cw-pdlg-modal, .cw-pl-modal, .cw-sm-modal, .cw-sp-modal, .cw-fc-modal,
+  .cw-font-modal, .cw-sdt-modal, .cw-toc-modal, .cw-orgpg-modal,
+  .cw-symp, .cw-eqe, .cw-pop, .cw-menu, .cw-dialog,
+  .cw-comment-bubble, .cw-mention-menu, .cw-loading-card, .cw-dev-modal
+) {
+  background: var(--wc-bg-pop);
+  border-color: var(--wc-line);
+  color: var(--wc-text);
+  /* 原生控件（复选框、下拉箭头、滚动条）跟随深色 */
+  color-scheme: dark;
+}
+
+/* 浮动面板与页脚抽屉的上游内联样式写死了浅色底，需 !important */
+[data-theme='dark'] .cw-float-panel,
+[data-theme='dark'] .cw-float-drawer {
+  background: var(--wc-bg-pop) !important;
+  border-color: var(--wc-line) !important;
+  color: var(--wc-text) !important;
+  color-scheme: dark;
+}
+
+/* --- ② 次级面：面板头尾、侧栏、列表、预览台 --- */
+[data-theme='dark'] :is(
+  .cw-tbl-head, .cw-pdlg-head, .cw-pl-head, .cw-sm-head, .cw-sp-head, .cw-fc-head,
+  .cw-font-head, .cw-sdt-head, .cw-toc-head, .cw-orgpg-head,
+  .cw-tbl-foot, .cw-pdlg-foot, .cw-pl-foot, .cw-sm-foot, .cw-sp-foot, .cw-fc-foot,
+  .cw-font-foot, .cw-sdt-foot, .cw-toc-foot, .cw-orgpg-foot,
+  .cw-pl-tabs, .cw-pl-tab.active, .cw-pl-right, .cw-pl-prev,
+  .cw-sm-list, .cw-sm-preview,
+  .cw-fc-right, .cw-sdt-left,
+  .cw-symp-head, .cw-eqe-head, .cw-eqe-foot,
+  .cw-orgpg-group, .cw-toc-instr, .cw-sdt-props dd code, .cw-sdt-pill,
+  .cw-review-head, .cw-review-tabs, .cw-review-actions
+) {
+  background: var(--wc-bg-2);
+  border-color: var(--wc-line);
+}
+
+/* --- ③ 输入控件（面板 / 弹层内的文本框、下拉框、数字框）--- */
+[data-theme='dark'] :is(
+  .cw-tbl-modal, .cw-pdlg-modal, .cw-pl-modal, .cw-sm-modal, .cw-sp-modal, .cw-fc-modal,
+  .cw-font-modal, .cw-sdt-modal, .cw-toc-modal, .cw-orgpg-modal,
+  .cw-symp, .cw-eqe, .cw-pop, .cw-dialog, .cw-toolbar, .cw-se, .cw-le, .cw-te
+) :is(input:not([type='color']):not([type='checkbox']), select, textarea) {
+  background: var(--wc-input-bg);
+  border-color: var(--wc-line);
+  color: var(--wc-text);
+  color-scheme: dark;
+}
+
+[data-theme='dark'] :is(
+  .cw-tbl-modal, .cw-pdlg-modal, .cw-pl-modal, .cw-sm-modal, .cw-sp-modal, .cw-fc-modal,
+  .cw-font-modal, .cw-sdt-modal, .cw-toc-modal, .cw-orgpg-modal, .cw-symp, .cw-eqe, .cw-pop
+) :is(input, textarea)::placeholder {
+  color: var(--wc-text-dim);
+}
+
+/* 浮动面板内的输入框为上游内联样式，需 !important */
+[data-theme='dark'] :is(.cw-float-panel, .cw-float-drawer) :is(input, select, textarea) {
+  background: var(--wc-input-bg) !important;
+  border-color: var(--wc-line) !important;
+  color: var(--wc-text) !important;
+}
+
+/* 工具条内的下拉/数字输入 */
+[data-theme='dark'] .cw-toolbar select,
+[data-theme='dark'] .cw-toolbar input[type='number'] {
+  background: var(--wc-input-bg);
+  border-color: var(--wc-line);
+  color: var(--wc-text);
+}
+
+[data-theme='dark'] .cw-toolbar select:hover,
+[data-theme='dark'] .cw-toolbar input[type='number']:hover {
+  border-color: var(--wc-text-dim);
+}
+
+[data-theme='dark'] .cw-toolbar option,
+[data-theme='dark'] :is(.cw-pop, .cw-symp, .cw-eqe) option {
+  background: var(--wc-input-bg);
+  color: var(--wc-text);
+}
+
+/* 禁用态输入（页面设置/符号等） */
+[data-theme='dark'] .cw-sp-field input:disabled {
+  background: var(--wc-bg-2);
+  color: var(--wc-text-dim);
+}
+
+/* --- ④ 按钮：面板内按钮、关闭键、选项格、菜单项 --- */
+[data-theme='dark'] :is(
+  .cw-tbl-btn, .cw-pdlg-btn, .cw-sm-btn, .cw-pl-btn, .cw-sp-btn, .cw-fc-btn,
+  .cw-font-btn, .cw-sdt-btn, .cw-toc-btn, .cw-orgpg-btn, .cw-orgpg-del,
+  .cw-fc-chip, .cw-pl-chip, .cw-se-tgl, .cw-te-btn, .cw-se-color button,
+  .cw-tbl-x, .cw-pdlg-x, .cw-sm-x, .cw-pl-x, .cw-sp-x, .cw-fc-x,
+  .cw-font-x, .cw-sdt-x, .cw-toc-x, .cw-orgpg-x,
+  .cw-symp-x, .cw-eqe-x, .cw-eqe-foot button, .cw-eqe-palette button,
+  .cw-symp-grid button, .cw-symp-recent button,
+  .cw-dialog button, .cw-menu button, .cw-pop .pop-action, .cw-btn
+) {
+  background: var(--wc-btn-bg);
+  border-color: var(--wc-line);
+  color: var(--wc-text);
+}
+
+[data-theme='dark'] :is(
+  .cw-tbl-btn, .cw-pdlg-btn, .cw-sm-btn, .cw-pl-btn, .cw-sp-btn, .cw-fc-btn,
+  .cw-font-btn, .cw-sdt-btn, .cw-toc-btn, .cw-orgpg-btn, .cw-orgpg-del,
+  .cw-fc-chip, .cw-pl-chip, .cw-se-tgl, .cw-te-btn, .cw-se-color button,
+  .cw-eqe-foot button, .cw-eqe-palette button,
+  .cw-symp-grid button, .cw-symp-recent button,
+  .cw-dialog button, .cw-menu button, .cw-pop .pop-action, .cw-btn
+):hover {
+  background: var(--wc-btn-hover);
+}
+
+/* 无底色的纯图标键（关闭键、面板内的下拉触发器）保持透明底 */
+[data-theme='dark'] :is(.cw-tbl-x, .cw-pdlg-x, .cw-sm-x, .cw-pl-x, .cw-sp-x, .cw-fc-x,
+  .cw-font-x, .cw-sdt-x, .cw-toc-x, .cw-orgpg-x, .cw-symp-x, .cw-eqe-x, .cw-review-close) {
+  background: transparent;
+  color: var(--wc-text-dim);
+}
+
+[data-theme='dark'] :is(.cw-tbl-x, .cw-pdlg-x, .cw-sm-x, .cw-pl-x, .cw-sp-x, .cw-fc-x,
+  .cw-font-x, .cw-sdt-x, .cw-toc-x, .cw-orgpg-x, .cw-symp-x, .cw-eqe-x, .cw-review-close):hover {
+  background: var(--wc-btn-hover);
+  color: var(--wc-text);
+}
+
+/* 主按钮：沿用上游主题蓝 */
+[data-theme='dark'] :is(.cw-tbl-btn, .cw-pdlg-btn, .cw-sm-btn, .cw-pl-btn, .cw-sp-btn, .cw-fc-btn,
+  .cw-font-btn, .cw-sdt-btn, .cw-toc-btn, .cw-orgpg-btn).primary,
+[data-theme='dark'] :is(.cw-eqe-foot, .cw-dialog) button.primary {
+  background: var(--wc-accent);
+  border-color: var(--wc-accent);
+  color: #fff;
+}
+
+/* 危险操作（样式管理里的删除）保留红字提示 */
+[data-theme='dark'] .cw-sm-btn.danger {
+  color: #f28b82;
+}
+
+[data-theme='dark'] .cw-sm-btn.danger:hover {
+  background: #4a2422;
+  border-color: #a4262c;
+  color: #f28b82;
+}
+
+[data-theme='dark'] .cw-eqe-err {
+  color: #f28b82;
+}
+
+/* --- ⑤ 选中 / 激活态 --- */
+[data-theme='dark'] :is(
+  .cw-tbl-btn.active, .cw-pl-tab.active, .cw-sm-card.sel, .cw-orgpg-group.linked,
+  .cw-grid .cell.on, .cw-tbl-badge, .cw-sdt-badge, .cw-review-tab .cw-pill, .cw-se-tgl.active
+) {
+  background: var(--wc-active-bg);
+  border-color: #2f5f96;
+  color: var(--wc-active-text);
+}
+
+[data-theme='dark'] .cw-sm-card.sel {
+  border-color: var(--wc-active-text);
+}
+
+[data-theme='dark'] .cw-tbl-badge,
+[data-theme='dark'] .cw-sdt-badge {
+  border-color: transparent;
+}
+
+/* --- ⑥ 次要文字：分组标题、字段标签、提示、说明 --- */
+[data-theme='dark'] :is(
+  .cw-tbl-hint, .cw-tbl-caption, .cw-tbl-section-title,
+  .cw-pdlg-section-title,
+  .cw-sp-sect, .cw-sp-note, .cw-sp-field label, .cw-sp-unit,
+  .cw-pl-unit, .cw-pl-prev-ttl, .cw-pl-field label,
+  .cw-sm-sec > h4, .cw-sm-empty, .cw-sm-preview .ttl,
+  .cw-fc-field label, .cw-fc-prev-title, .cw-fc-note,
+  .cw-font-section > label.head, .cw-font-row > span.lbl,
+  .cw-sdt-section-title, .cw-sdt-props dt, .cw-sdt-empty,
+  .cw-toc-field > label, .cw-toc-instr,
+  .cw-orgpg-hint, .cw-orgpg-num, .cw-orgpg-empty,
+  .cw-symp-label, .cw-symp-row label, .cw-eqe-hint,
+  .cw-se-grp > h3, .cw-se-field > label, .cw-le-h3, .cw-le-field > label,
+  .cw-te-h3, .cw-te-field > label,
+  .cw-pop-title, .cw-grid-label, .cw-grid-cat, .cw-dialog label,
+  .cw-menu-header, .cw-menu-acc, .cw-menu-arrow, .cw-menu-ico, .cw-menu .sample,
+  .cw-review-empty, .cw-sug-meta, .cw-comment-when, .cw-outline-empty
+) {
+  color: var(--wc-text-dim);
+}
+
+/* 面板内所有 label（含上游按行内联写死的字段/勾选标签）统一转为次要色 */
+[data-theme='dark'] :is(
+  .cw-tbl-modal, .cw-pdlg-modal, .cw-pl-modal, .cw-sm-modal, .cw-sp-modal, .cw-fc-modal,
+  .cw-font-modal, .cw-sdt-modal, .cw-toc-modal, .cw-orgpg-modal,
+  .cw-symp, .cw-eqe, .cw-dialog, .cw-float-panel, .cw-float-drawer
+) label {
+  color: var(--wc-text-dim);
+}
+
+/* 勾选项 / 属性行的文字保持正文色（可读性优先，不被上面的次要色覆盖） */
+[data-theme='dark'] :is(
+  .cw-pl-check, .cw-font-check, .cw-toc-check, .cw-se-checks label, .cw-te-chk,
+  .cw-sdt-props dd, .cw-comment-who, .cw-comment-body
+) {
+  color: var(--wc-text);
+}
+
+/* --- ⑦ 纸面：代表「纸张 / 打印结果」的预览保持浅色（与正文纸张一致）--- */
+[data-theme='dark'] :is(
+  .cw-tbl-preview, .cw-pdlg-preview, .cw-sm-prevhost, .cw-sdt-preview, .cw-fc-prev,
+  .cw-eqe-prevwrap
+) {
+  background: #fff;
+  border-color: var(--wc-line);
+  color: #202124;
+  color-scheme: light;
+}
+
+/* --- Ribbon 主体与分组 --- */
+[data-theme='dark'] .cw-toolbar {
+  background: var(--wc-bg);
+  border-bottom-color: var(--wc-line);
+}
+
+[data-theme='dark'] .rib-bodies {
+  background: var(--wc-bg);
+  border-top-color: var(--wc-line);
+  border-bottom-color: var(--wc-line);
+}
+
+[data-theme='dark'] .rib-group + .rib-group::before {
+  background: var(--wc-line);
+}
+
+[data-theme='dark'] .rib-label {
+  color: var(--wc-text-dim);
+}
+
+/* --- 选项卡 --- */
+[data-theme='dark'] .rib-tabs {
+  background: var(--wc-bg);
+}
+
+[data-theme='dark'] .rib-tab {
+  color: var(--wc-text);
+}
+
+[data-theme='dark'] .rib-tab:hover {
+  background: var(--wc-hover);
+}
+
+[data-theme='dark'] .rib-tab.active {
+  background: var(--wc-bg-2);
+  color: var(--wc-active-text);
+}
+
+[data-theme='dark'] .rib-tab.active::after {
+  background: var(--wc-active-text);
+}
+
+[data-theme='dark'] .rib-tab.file {
+  background: var(--wc-accent);
+  color: #fff;
+}
+
+[data-theme='dark'] .rib-tab.file:hover {
+  background: #1a4275;
+}
+
+/* --- 审阅模式选择 / 右侧按钮 --- */
+[data-theme='dark'] .cw-mode-select,
+[data-theme='dark'] .cw-header-btn {
+  background: var(--wc-input-bg);
+  border-color: var(--wc-line);
+  color: var(--wc-text);
+}
+
+[data-theme='dark'] .cw-mode-select:hover,
+[data-theme='dark'] .cw-header-btn:hover {
+  background: var(--wc-hover);
+  border-color: var(--wc-text-dim);
+}
+
+[data-theme='dark'] .cw-header-btn {
+  color: var(--wc-active-text);
+}
+
+[data-theme='dark'] .cw-header-btn.active {
+  background: var(--wc-accent);
+  border-color: var(--wc-accent);
+  color: #fff;
+}
+
+/* --- 工具条按钮 --- */
+[data-theme='dark'] .cw-toolbar button.rib-btn {
+  color: var(--wc-text);
+}
+
+[data-theme='dark'] .cw-toolbar button.rib-btn:hover {
+  background: var(--wc-hover);
+}
+
+[data-theme='dark'] .cw-toolbar button.rib-btn:active {
+  background: var(--wc-press);
+}
+
+[data-theme='dark'] .cw-toolbar button.rib-btn.active {
+  background: var(--wc-active-bg);
+  color: var(--wc-active-text);
+  border-color: #2f5f96;
+}
+
+[data-theme='dark'] .cw-toolbar button.rib-btn.active:hover {
+  background: #24466f;
+}
+
+[data-theme='dark'] .cw-toolbar button.rib-btn.active svg {
+  color: var(--wc-active-text);
+}
+
+/* --- 样式库 --- */
+[data-theme='dark'] .rib-gallery {
+  background: var(--wc-bg-2);
+  border-color: var(--wc-line);
+}
+
+[data-theme='dark'] .rib-gallery::-webkit-scrollbar-thumb {
+  background: var(--wc-line);
+}
+
+[data-theme='dark'] .style-card {
+  background: var(--wc-bg-2);
+  border-color: var(--wc-line);
+}
+
+[data-theme='dark'] .style-card:hover {
+  border-color: var(--wc-active-text);
+}
+
+[data-theme='dark'] .style-card.active {
+  background: var(--wc-active-bg);
+  border-color: var(--wc-active-text);
+  box-shadow: inset 0 0 0 1px var(--wc-active-text);
+}
+
+[data-theme='dark'] .style-card .preview {
+  color: var(--wc-text);
+}
+
+[data-theme='dark'] .style-card .name {
+  color: var(--wc-text-dim);
+}
+
+/* --- 标尺补色（画布留白由 darkCanvasTheme 处理，仅补未覆盖的角落与描边）--- */
+[data-theme='dark'] .cw-ruler-corner {
+  background: #202124;
+  border-bottom-color: var(--wc-line);
+  border-right-color: var(--wc-line);
+}
+
+[data-theme='dark'] .cw-ruler {
+  border-bottom-color: var(--wc-line);
+}
+
+[data-theme='dark'] .cw-vruler {
+  border-right-color: var(--wc-line);
+}
+
+/* --- 状态栏 --- */
+[data-theme='dark'] .cw-statusbar {
+  background: var(--wc-accent);
+}
+
+/* --- 大纲 / 导航面板 --- */
+[data-theme='dark'] .cw-outline {
+  background: var(--wc-bg);
+  border-right-color: var(--wc-line);
+}
+
+[data-theme='dark'] .cw-outline .outline-head {
+  background: var(--wc-bg);
+  border-bottom-color: var(--wc-line);
+  color: var(--wc-text);
+}
+
+[data-theme='dark'] .cw-outline .outline-head button {
+  color: var(--wc-text-dim);
+}
+
+[data-theme='dark'] .cw-outline .outline-head button:hover {
+  background: var(--wc-hover);
+}
+
+[data-theme='dark'] .outline-item {
+  color: var(--wc-text);
+}
+
+[data-theme='dark'] .outline-item:hover {
+  background: var(--wc-hover);
+}
+
+[data-theme='dark'] .outline-item.active {
+  background: var(--wc-active-bg);
+  border-left-color: var(--wc-active-text);
+  color: var(--wc-active-text);
+}
+
+/* --- 弹出层：菜单 / 调色板 / 对话框 --- */
+[data-theme='dark'] .cw-pop .pop-row select {
+  background: var(--wc-input-bg);
+  border-color: var(--wc-line);
+  color: var(--wc-text);
+}
+
+[data-theme='dark'] .cw-grid .cell {
+  background: var(--wc-input-bg);
+  border-color: var(--wc-line);
+}
+
+[data-theme='dark'] .cw-dialog input {
+  background: var(--wc-input-bg);
+  border-color: var(--wc-line);
+  color: var(--wc-text);
+}
+
+[data-theme='dark'] .cw-dialog button.primary {
+  background: var(--wc-accent);
+  border-color: var(--wc-accent);
+  color: #fff;
+}
+
+[data-theme='dark'] .cw-menu .check {
+  color: var(--wc-active-text);
+}
+
+[data-theme='dark'] .cw-menu-item:hover:not(.cw-disabled) {
+  background: var(--wc-hover);
+}
+
+[data-theme='dark'] .cw-menu-item.cw-danger:hover:not(.cw-disabled) {
+  background: #4a2422;
+  color: #f28b82;
+}
+
+[data-theme='dark'] .cw-menu-item.cw-disabled {
+  color: var(--wc-text-dim);
+}
+
+[data-theme='dark'] .cw-menu-sep {
+  background: var(--wc-line);
+}
+
+/* 调色板色块只补描边，颜色本身是内容不动 */
+[data-theme='dark'] .cw-swatches button {
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+/* 颜色选择器（input[type=color]）：外框与底色转深，色块本身即内容不动。
+   注：边框和底纹/插入表格的取色块（.cw-pdlg-swatch/.cw-tbl-swatch）不上色，
+   它们的 background 就是当前选中的颜色，交由上游读写。 */
+[data-theme='dark'] :is(.cw-font-body input[type='color'], .cw-se-color input[type='color'],
+  .cw-te-color input[type='color']) {
+  background: var(--wc-input-bg);
+  border-color: var(--wc-line);
+}
+
+/* --- 批注：气泡编辑器 / @提及 / 会话卡片 --- */
+[data-theme='dark'] .cw-comment-bubble textarea {
+  color: var(--wc-text);
+}
+
+[data-theme='dark'] .cw-comment-chip {
+  background: var(--wc-bg-2);
+  border-color: var(--wc-line);
+  color: var(--wc-text);
+}
+
+[data-theme='dark'] .cw-comment-chip:hover {
+  background: var(--wc-btn-hover);
+}
+
+[data-theme='dark'] .cw-mention-item {
+  color: var(--wc-text);
+}
+
+[data-theme='dark'] .cw-mention-item:hover,
+[data-theme='dark'] .cw-mention-item.active {
+  background: var(--wc-hover);
+}
+
+[data-theme='dark'] .cw-thread {
+  background: var(--wc-bg-2);
+  border-color: var(--wc-line);
+}
+
+[data-theme='dark'] .cw-thread:hover {
+  border-color: var(--wc-active-text);
+}
+
+[data-theme='dark'] .cw-thread-actions {
+  border-top-color: var(--wc-line);
+}
+
+[data-theme='dark'] .cw-thread-actions .cw-resolved-tag {
+  color: #8fd9a8;
+}
+
+[data-theme='dark'] .cw-reply-box textarea {
+  background: var(--wc-input-bg);
+  border-color: var(--wc-line);
+  color: var(--wc-text);
+}
+
+/* --- 修订/批注面板 --- */
+[data-theme='dark'] .cw-review {
+  background: var(--wc-bg);
+  border-left-color: var(--wc-line);
+  color: var(--wc-text);
+}
+
+[data-theme='dark'] .cw-review-head .cw-review-title,
+[data-theme='dark'] .cw-review-tab:hover {
+  color: var(--wc-text);
+}
+
+[data-theme='dark'] .cw-review-head .cw-review-close,
+[data-theme='dark'] .cw-review-tab {
+  color: var(--wc-text-dim);
+}
+
+[data-theme='dark'] .cw-review-tab.active {
+  color: var(--wc-active-text);
+  border-bottom-color: var(--wc-active-text);
+}
+
+[data-theme='dark'] .cw-review-tab .cw-pill {
+  background: var(--wc-line);
+  color: var(--wc-text-dim);
+}
+
+[data-theme='dark'] .cw-review-tab.active .cw-pill {
+  background: var(--wc-active-bg);
+  color: var(--wc-active-text);
+}
+
+[data-theme='dark'] .cw-btn.cw-btn-primary {
+  background: var(--wc-accent);
+  border-color: var(--wc-accent);
+  color: #fff;
+}
+
+[data-theme='dark'] .cw-btn.cw-btn-accept {
+  background: #1e3a2a;
+  border-color: #2f5f43;
+  color: #8fd9a8;
+}
+
+[data-theme='dark'] .cw-btn.cw-btn-reject {
+  background: #4a2422;
+  border-color: #7a3a35;
+  color: #f28b82;
+}
+
+[data-theme='dark'] .cw-btn.cw-btn-ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--wc-active-text);
+}
+
+[data-theme='dark'] .cw-btn.cw-btn-ghost:hover {
+  background: var(--wc-active-bg);
+}
+
+[data-theme='dark'] .cw-sug {
+  background: var(--wc-bg-2);
+  border-color: var(--wc-line);
+}
+
+[data-theme='dark'] .cw-sug:hover {
+  background: var(--wc-btn-hover);
+}
+
+[data-theme='dark'] .cw-sug-kind {
+  color: var(--wc-text);
+}
+
+/* --- 加载遮罩 --- */
+[data-theme='dark'] .cw-loading-label {
+  color: var(--wc-text);
+}
+
+[data-theme='dark'] .cw-spinner {
+  border-color: var(--wc-line);
+  border-top-color: var(--wc-active-text);
+}
+
+[data-theme='dark'] .cw-progress {
+  background: var(--wc-line);
+}
