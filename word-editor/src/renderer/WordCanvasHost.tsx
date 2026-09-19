@@ -7,10 +7,27 @@ import {
   type WordCanvasInstance, type WordCanvasEditorHandle, type WordCanvasModule,
 } from './wordcanvas-loader'
 import { installWordCanvasLocalizer } from './wordcanvas-i18n'
-import { removeInsertMenuBar, applyDirectionIcons, installFloatingLayerClamp } from './wordcanvas-tweaks'
+import {
+  removeInsertMenuBar, applyDirectionIcons, installFloatingLayerClamp,
+  applySystemFontGlobals, stackStyleGroupButtons, installResponsiveRibbon,
+  PAGE_HIDDEN_CLASS,
+  type SystemFontEntry,
+} from './wordcanvas-tweaks'
 import { BLANK_DOCUMENT_JSON } from '../shared/blank-document'
-import { hostT, useAppearance } from './store'
+import { hostT, useAppearance, we } from './store'
 import type { EditorBridge } from './word-editor.store'
+
+/** 系统字体列表（进程内缓存；编辑器构造前注入全局供 vendor 补丁消费） */
+let systemFontsPromise: Promise<SystemFontEntry[]> | null = null
+function loadSystemFonts(): Promise<SystemFontEntry[]> {
+  if (!systemFontsPromise) {
+    systemFontsPromise = we
+      .listSystemFonts()
+      .then((res) => res.fonts ?? [])
+      .catch(() => [])
+  }
+  return systemFontsPromise
+}
 
 interface Props {
   /** 初始文档数据（Document JSON；空串表示空白文档）。仅首次挂载时使用，后续切换文档走 remoteData 回调 */
@@ -122,7 +139,10 @@ export function WordCanvasHost({ initialData, onReady, onRemoteData, onToolbarEx
     void (async () => {
       let mod: WordCanvasModule
       try {
-        mod = await loadWordCanvas()
+        const [m, fonts] = await Promise.all([loadWordCanvas(), loadSystemFonts()])
+        // 必须在构造编辑器前注入：字体下拉构建、画布族名解析都读这两个全局
+        applySystemFontGlobals(fonts)
+        mod = m
       } catch (e) {
         if (!disposed) setError(e instanceof Error ? e.message : String(e))
         return
@@ -189,20 +209,43 @@ export function WordCanvasHost({ initialData, onReady, onRemoteData, onToolbarEx
     }
   }, [getData, getSignature, setDocument, openDocx, exportBytes, retryNonce, isDark])
 
-  // 编辑器就绪后：去掉空白段落上的「＋ 插入」浮条、把方向按钮换成图标，再安装弹层视口钳制与 UI 本地化
-  // （图标替换需在本地化之前，按面部原文 LTR/RTL 命中）
+  // 编辑器就绪后：去掉空白段落上的「＋ 插入」浮条、把方向按钮换成图标、样式组操作按钮竖排，
+  // 再安装弹层视口钳制与 UI 本地化
+  // （图标替换需在本地化之前，按面部原文 LTR/RTL 命中；宽度自适应需在本地化之后，
+  //   使布局量测基于本地化后的文案宽度）
   useEffect(() => {
     if (!ready) return
     removeInsertMenuBar()
     applyDirectionIcons()
+    stackStyleGroupButtons()
     const stopClamp = installFloatingLayerClamp()
     const container = containerRef.current
     const stopLocalize = container ? installWordCanvasLocalizer(container, locale) : () => {}
+    const stopResponsive = container ? installResponsiveRibbon(container, hostT('page.toolbarMore')) : () => {}
     return () => {
       stopClamp()
       stopLocalize()
+      stopResponsive()
     }
   }, [ready, locale])
+
+  // 宿主 KeepAlive 用 display:none 隐藏非活动页，而 wordcanvas 的浮动工具条/弹层挂在
+  // document.body 上且 position:fixed —— 不处理会残留显示在其他页面上层（如任务页）。
+  // 这里用 IntersectionObserver 感知插件页可见性，打 html 类交由 CSS 统一收起/恢复
+  // （不触碰上游内联状态，切回页面后上游按原状态继续管理）。
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries.some((entry) => entry.isIntersecting)
+      document.documentElement.classList.toggle(PAGE_HIDDEN_CLASS, !visible)
+    })
+    observer.observe(container)
+    return () => {
+      observer.disconnect()
+      document.documentElement.classList.remove(PAGE_HIDDEN_CLASS)
+    }
+  }, [])
 
   // 插件卸载时释放 worker blob
   useEffect(() => () => releaseWorkers(), [])

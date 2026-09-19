@@ -152,15 +152,31 @@ describe('word-editor 深色主题覆盖', () => {
   })
 })
 
-describe('word-editor Ribbon 宽度适配', () => {
-  it('面板单行横向滚动（保证任意宽度下按钮可达，且不改变 Ribbon 高度/分组排布）', () => {
+describe('word-editor Ribbon 宽度自适应', () => {
+  it('面板溢出隐藏（收纳逻辑见 installResponsiveRibbon，正常宽度下不出现滚动条）', () => {
     const rule = cssRule('.we-host .cw-toolbar .rib-panel.active')
-    expect(rule).toMatch(/overflow-x:\s*auto/)
-    expect(rule).toMatch(/overflow-y:\s*hidden/)
+    expect(rule).toMatch(/overflow:\s*hidden/)
     expect(rule).toContain('flex-wrap: nowrap')
     // 曾试过「分组折行成多行」：按钮位置下移、Ribbon 变高，实测观感更差，已回退 —— 不再允许折行
     expect(rule).not.toContain('flex-wrap: wrap')
     expect(rule).not.toMatch(/max-height/)
+  })
+
+  it('分组不收缩（保持自然宽度，防按钮压扁文字重叠，也保证 scrollWidth 量测准确）', () => {
+    const rule = cssRule('.we-host .cw-toolbar .rib-panel.active > .rib-group')
+    expect(rule).toMatch(/flex:\s*0\s+0\s+auto/)
+  })
+
+  it('面板高度随内容自适应（上游写死 94px 会让插入等单行选项卡出现大片垂直留白）', () => {
+    const rule = cssRule('.we-host .cw-toolbar .rib-panel.active')
+    expect(rule).toMatch(/min-height:\s*56px/)
+  })
+
+  it('收纳配套类存在：压缩样式库（tight）与极窄兜底滚动（scroll）', () => {
+    const tight = cssRule('.we-host .cw-toolbar .rib-panel.active.we-ribbon-tight .rib-gallery')
+    expect(tight).toMatch(/max-width/)
+    const scroll = cssRule('.we-host .cw-toolbar .rib-panel.active.we-ribbon-scroll')
+    expect(scroll).toMatch(/overflow-x:\s*auto/)
   })
 
   it('面板内文字不换行（中文逐字换行会把按钮压成单字宽并溢出重叠）', () => {

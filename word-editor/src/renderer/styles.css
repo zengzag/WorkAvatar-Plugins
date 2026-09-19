@@ -129,26 +129,145 @@
   color: var(--we-muted);
 }
 
-/* Ribbon 面板宽度适配：上游 Ribbon 面板宽度固定（开始选项卡自然宽度约 1606px），容器变窄时
-   上游默认 overflow:visible，会被 .wordcanvas-root 的 overflow-x:hidden 裁掉右侧按钮（工具不可达）。
-   这里统一改为横向滚动 + 可见滚动条，保证任意窗口宽度下都能访问全部按钮。
-   （试过「分组折行」，实测钮位置下移更难看且并非上游设计，已回退。） */
+/* Ribbon 面板宽度自适应（WPS 式简化显示，见 wordcanvas-tweaks.ts 的 installResponsiveRibbon）：
+   面板溢出隐藏，容器变窄时由补丁先压缩样式库（we-ribbon-tight）、再把右侧分组整体收进
+   面板末尾的「更多」弹层（we-ribbon-overflow），不出现滚动条；分组不收缩（flex:0 0 auto）
+   保持自然宽度，避免按钮被压扁文字重叠，也保证 scrollWidth 量测准确。
+   （旧方案为单行横向滚动；更早试过「分组折行」，按钮位置下移更难看，均弃用。）
+   we-ribbon-scroll 仅作兜底：受保护分组也放不下的极窄窗口恢复横向滚动。 */
 .we-host .cw-toolbar .rib-panel.active {
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: hidden;
   flex-wrap: nowrap;
+  /* 面板高度随内容自适应：上游为「开始」选项卡的高分组（样式库/双行字体段落组）写死
+     min-height: 94px，插入/布局/视图等单行小按钮选项卡被撑出大片垂直留白。改为
+     56px 下限 + 内容自然高度（大按钮/样式库/双行分组会自然撑高），单行选项卡收紧为
+     一行图标 + 紧贴的分组标题；代价是选项卡切换时 Ribbon 高度随内容略有变化。 */
+  min-height: 56px;
   /* 中文可在任意字符处换行：不锁行的话，被压缩的分组/按钮会退化成单字宽、
-     文字折行溢出 26px 定高按钮，出现文字重叠。锁行后由面板横向滚动承载。 */
+     文字折行溢出 26px 定高按钮，出现文字重叠。 */
   white-space: nowrap;
 }
 
-.we-host .cw-toolbar .rib-panel.active::-webkit-scrollbar {
+.we-host .cw-toolbar .rib-panel.active > .rib-group {
+  flex: 0 0 auto;
+}
+
+/* 阶段一：压缩样式库（样式卡片内部自持横向滚动，仍可浏览全部样式） */
+.we-host .cw-toolbar .rib-panel.active.we-ribbon-tight .rib-gallery {
+  max-width: 190px;
+}
+
+/* 兜底：恢复横向滚动 + 可见滚动条 */
+.we-host .cw-toolbar .rib-panel.active.we-ribbon-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.we-host .cw-toolbar .rib-panel.active.we-ribbon-scroll::-webkit-scrollbar {
   height: 8px;
 }
 
-.we-host .cw-toolbar .rib-panel.active::-webkit-scrollbar-thumb {
+.we-host .cw-toolbar .rib-panel.active.we-ribbon-scroll::-webkit-scrollbar-thumb {
   background: var(--we-muted);
   border-radius: 4px;
+}
+
+/* 「更多」按钮（面板末尾，上游 rib-btn 样式自动生效；面板 align-items:stretch 下
+   显式高度的按钮会贴顶，居中对齐与图标行一致） */
+.we-host .cw-toolbar .we-ribbon-more {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-left: 2px;
+}
+
+/* 「更多」收纳弹层：挂在 body 上（与上游弹层同层），分组以「标题在上 + 控件换行排布」
+   展示。上游样式表注入晚于本文件且按 .cw-toolbar 作用域写按钮样式，故这里的按钮外观
+   需自带一份，并整体提高选择器优先级。 */
+.cw-pop.we-ribbon-overflow {
+  flex-direction: column;
+  padding: 4px 0;
+  min-width: 200px;
+  max-width: min(420px, calc(100vw - 12px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+.we-ribbon-overflow .rib-group {
+  display: flex;
+  flex-direction: column-reverse; /* DOM 为「控件在上、标题在下」，反转后标题作分组头 */
+  align-items: stretch;
+  padding: 6px 10px;
+}
+
+.we-ribbon-overflow .rib-group + .rib-group {
+  border-top: 1px solid #e1dfdd;
+}
+
+.we-ribbon-overflow .rib-group + .rib-group::before {
+  display: none; /* 上游的组间竖分隔线在弹层里不适用 */
+}
+
+.we-ribbon-overflow .rib-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #605e5c;
+  padding: 2px 0 4px;
+  white-space: nowrap;
+}
+
+.we-ribbon-overflow .rib-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+
+.we-ribbon-overflow .rib-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.we-ribbon-overflow .rib-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}
+
+.we-ribbon-overflow button,
+.we-ribbon-overflow select {
+  white-space: nowrap;
+}
+
+.we-ribbon-overflow button.rib-btn {
+  min-width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid transparent; border-radius: 4px; background: transparent; cursor: pointer;
+  color: #323130; font-size: 13px; padding: 0 4px; gap: 2px;
+}
+
+.we-ribbon-overflow button.rib-btn:hover { background: #e1dfdd; }
+.we-ribbon-overflow button.rib-btn:active { background: #d2d0ce; }
+.we-ribbon-overflow button.rib-btn.active { background: #cfe3fb; color: #0b57d0; border-color: #b3d3f5; }
+.we-ribbon-overflow button.rib-btn svg { width: 16px; height: 16px; }
+.we-ribbon-overflow button.rib-btn .caret { width: 8px; height: 8px; }
+.we-ribbon-overflow button.rib-btn:disabled { opacity: 0.38; cursor: default; }
+
+/* 大按钮在弹层里改横排（图标 + 文字），高度回落到常规行高 */
+.we-ribbon-overflow button.rib-big {
+  flex-direction: row; height: auto; min-height: 26px; min-width: 26px; padding: 2px 6px; gap: 4px; justify-content: flex-start;
+}
+.we-ribbon-overflow button.rib-big svg { width: 16px; height: 16px; }
+.we-ribbon-overflow button.rib-big .big-cap { font-size: 12px; display: inline-flex; align-items: center; gap: 1px; }
+
+.we-ribbon-overflow select {
+  height: 24px; border: 1px solid #c8c6c4; border-radius: 3px; background: #fff;
+  font: inherit; font-size: 13px; color: #323130;
+}
+
+/* 样式库在弹层里放宽铺开（卡片换行浏览） */
+.we-ribbon-overflow .rib-gallery {
+  max-width: none; height: auto; flex-wrap: wrap;
 }
 
 /* Ribbon / 状态栏 / 上下文工具条内的文字一律不换行（同上：避免折行溢出重叠）。
@@ -159,6 +278,23 @@
 .we-host .cw-statusbar,
 .cw-ctxbar button {
   white-space: nowrap;
+}
+
+/* ====== 页面隐藏时收起浮动层 ======
+
+   宿主 KeepAlive 用 display:none 隐藏非活动页，而 wordcanvas 的浮动工具条（选择文本
+   弹出的 fmtbar/ctxbar）、菜单、对话框等挂在 document.body 上且 position:fixed ——
+   切到其他页面（如任务页）后会残留显示在其上层。
+   由 WordCanvasHost 按页面可见性开关 <html> 上的 we-page-hidden 类，用 !important
+   反转 display：不触碰上游内联状态，切回页面即按原状态恢复。 */
+html.we-page-hidden :is(
+  .cw-ctxbar, .cw-fmtbar, .cw-pop, .cw-menu, .cw-dialog,
+  .cw-symp, .cw-eqe, .cw-float-panel, .cw-float-drawer,
+  .cw-comment-bubble, .cw-mention-menu,
+  .cw-tbl-modal, .cw-pdlg-modal, .cw-pl-modal, .cw-sm-modal, .cw-sp-modal, .cw-fc-modal,
+  .cw-font-modal, .cw-sdt-modal, .cw-toc-modal, .cw-orgpg-modal, .cw-dev-modal
+) {
+  display: none !important;
 }
 
 /* ====== 版本历史列表行 ====== */
@@ -432,6 +568,45 @@
 
 [data-theme='dark'] .rib-label {
   color: var(--wc-text-dim);
+}
+
+/* --- 「更多」收纳弹层（挂在 body 上；容器底色由 .cw-pop 深色规则覆盖，
+       按钮外观是本插件自带的浅色样式，需在此逐项转深） --- */
+[data-theme='dark'] .we-ribbon-overflow {
+  border-color: var(--wc-line);
+  color-scheme: dark;
+}
+
+[data-theme='dark'] .we-ribbon-overflow .rib-group + .rib-group {
+  border-top-color: var(--wc-line);
+}
+
+[data-theme='dark'] .we-ribbon-overflow .rib-label {
+  color: var(--wc-text-dim);
+}
+
+[data-theme='dark'] .we-ribbon-overflow button.rib-btn {
+  color: var(--wc-text);
+}
+
+[data-theme='dark'] .we-ribbon-overflow button.rib-btn:hover {
+  background: var(--wc-hover);
+}
+
+[data-theme='dark'] .we-ribbon-overflow button.rib-btn:active {
+  background: var(--wc-press);
+}
+
+[data-theme='dark'] .we-ribbon-overflow button.rib-btn.active {
+  background: var(--wc-active-bg);
+  color: var(--wc-active-text);
+  border-color: #2f5f96;
+}
+
+[data-theme='dark'] .we-ribbon-overflow select {
+  background: var(--wc-input-bg);
+  border-color: var(--wc-line);
+  color: var(--wc-text);
 }
 
 /* --- 选项卡 --- */

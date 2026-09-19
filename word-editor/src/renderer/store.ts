@@ -99,6 +99,8 @@ export const we = {
   listProviders: () => invoke<any[]>('providers-list'),
   getSettings: () => invoke<{ settings: any }>('settings-get'),
   setSettings: (settings: any) => invoke<{ ok: boolean }>('settings-set', { settings }),
+  listSystemFonts: () =>
+    invoke<{ fonts: Array<{ value: string; label: string }> }>('font-list'),
   sendChat: (payload: {
     providerId: string
     modelId?: string
@@ -113,7 +115,14 @@ export const we = {
     invoke<{ ok: boolean; taskDir?: string; taskDirNonEmpty?: boolean } | { error: string }>('chat-delete', { conversationId }),
   openChatDir: (conversationId: string) => invoke<{ ok: boolean; error?: string }>('chat-open-dir', { conversationId }),
 
+  // AI 文档工具操作桥：上报编辑页面在线状态 + 回传操作结果
+  attachDocOp: (attached: boolean) => invoke<{ ok: boolean }>('doc-op-attach', { attached }),
+  docOpResult: (payload: { opId: string; data?: string; output?: string; error?: string }) =>
+    invoke<{ ok: boolean }>('doc-op-result', payload),
+
   // 事件
+  onDocOp: (cb: (payload: { opId: string; op: string; args: Record<string, unknown> }) => void) =>
+    onEvent('doc-op', (p) => cb(p as any)),
   onDocChanged: (cb: (payload: { doc: { id: string; data: string }; source: string }) => void) =>
     onEvent('doc-changed', (p) => cb(p as any)),
   onDocListChanged: (cb: () => void) => onEvent('doc-list-changed', () => cb()),

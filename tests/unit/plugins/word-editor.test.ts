@@ -4,7 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createMockContext } from '../../helpers/mock-plugin-context'
-import type { PluginMainModule } from '@workavatar/plugin-sdk'
+import type { PluginMainModule, PluginToolDefinition } from '@workavatar/plugin-sdk'
+import { DOC_OPS } from '../../../word-editor/src/shared/doc-ops'
 
 /**
  * word-editor 插件单测：
@@ -300,5 +301,162 @@ describe('deactivate', () => {
   it('释放资源不抛错', async () => {
     const { mod } = await setup()
     expect(() => mod.deactivate?.()).not.toThrow()
+  })
+})
+
+// ====== AI 文档工具（工具 → 文档桥 → 渲染端执行结果回传） ======
+
+const EDITED_DATA = JSON.stringify({
+  section: {},
+  blocks: [{ kind: 'paragraph', id: 'p1', revision: 2, runs: [{ text: '新内容', style: {} }], style: {} }],
+})
+
+function agentTool(mock: ReturnType<typeof createMockContext>, id: string): PluginToolDefinition {
+  const tool = (mock.contributions.agentTools as PluginToolDefinition[]).find((t) => t.id === id)
+  if (!tool) throw new Error(`工具未注册: ${id}`)
+  return tool
+}
+
+/** 最近一次下发给渲染端的文档操作请求 */
+function lastDocOp(mock: ReturnType<typeof createMockContext>): { opId: string; op: string; args: Record<string, unknown> } {
+  const hit = [...mock.ipc.broadcasts].reverse().find((b) => b.event === 'doc-op')
+  if (!hit) throw new Error('未收到 doc-op 广播')
+  return hit.payload as { opId: string; op: string; args: Record<string, unknown> }
+}
+
+/** 模拟渲染端执行并回传结果 */
+async function replyDocOp(
+  mock: ReturnType<typeof createMockContext>,
+  outcome: { data?: string; output?: string; error?: string; docId?: string }
+): Promise<void> {
+  const payload = lastDocOp(mock)
+  await handler(mock, 'doc-op-result')({ opId: payload.opId, ...outcome })
+}
+
+async function setupWithDoc(): Promise<{ mock: ReturnType<typeof createMockContext>; docId: string }> {
+  const { mock } = await setup()
+  stubQuery(mock, [{ id: 'p1', name: 'P1', model: 'm1', is_default: true }])
+  await handler(mock, 'settings-set')({ settings: { defaultProviderId: 'p1', defaultModelId: 'm1' } })
+  await handler(mock, 'doc-op-attach')({ attached: true })
+  const { doc } = (await handler(mock, 'doc-create')({ title: 'T' })) as { doc: { id: string; data: string } }
+  return { mock, docId: doc.id }
+}
+
+describe('AI 文档工具', () => {
+  it('激活时注册全部文档工具（工具 id 与操作名一致）', async () => {
+    const { mock } = await setup()
+    const ids = (mock.contributions.agentTools as PluginToolDefinition[]).map((t) => t.id).sort()
+    expect(ids).toEqual(Object.values(DOC_OPS).sort())
+    for (const tool of mock.contributions.agentTools as PluginToolDefinition[]) {
+      expect(tool.name).toBe(tool.id)
+      expect(tool.description.length).toBeGreaterThan(20)
+      // 作用于实时文档，禁用 retry 防止超时重试造成重复改动
+      expect(tool.noRetry).toBe(true)
+      expect(tool.timeoutMs).toBeGreaterThan(0)
+    }
+  })
+
+  it('编辑器未挂载时工具立即返回可读错误（不等待超时）', async () => {
+    const { mock } = await setupWithDoc()
+    await handler(mock, 'doc-op-attach')({ attached: false })
+    const res = (await agentTool(mock, DOC_OPS.outline).handler({}, {})) as { success: boolean; error: string }
+    expect(res.success).toBe(false)
+    expect(res.error).toContain('未打开')
+    expect(mock.ipc.broadcasts.some((b) => b.event === 'doc-op')).toBe(false)
+  })
+
+  it('无打开文档时工具返回错误', async () => {
+    const { mock } = await setup()
+    await handler(mock, 'doc-op-attach')({ attached: true })
+    const res = (await agentTool(mock, DOC_OPS.outline).handler({}, {})) as { success: boolean; error: string }
+    expect(res.success).toBe(false)
+    expect(res.error).toContain('没有打开的文档')
+  })
+
+  it('操作成功时持久化新内容并广播 doc-changed', async () => {
+    const { mock, docId } = await setupWithDoc()
+    const pending = agentTool(mock, DOC_OPS.setParagraphText).handler({ blockId: 'p1', text: '新内容' }, {})
+    const sent = lastDocOp(mock)
+    expect(sent.op).toBe(DOC_OPS.setParagraphText)
+    expect(sent.args).toEqual({ blockId: 'p1', text: '新内容' })
+    await replyDocOp(mock, { data: EDITED_DATA, output: '已更新', docId })
+
+    const res = (await pending) as { success: boolean; output: string }
+    expect(res).toMatchObject({ success: true, output: '已更新' })
+    const opened = (await handler(mock, 'doc-open')({ id: docId })) as { doc: { data: string } }
+    expect(opened.doc.data).toBe(EDITED_DATA)
+    const changed = mock.ipc.broadcasts.filter((b) => b.event === 'doc-changed')
+    expect(changed.length).toBe(1)
+    expect((changed[0].payload as { doc: { id: string } }).doc.id).toBe(docId)
+  })
+
+  it('读操作不改动文档、不广播', async () => {
+    const { mock } = await setupWithDoc()
+    const pending = agentTool(mock, DOC_OPS.read).handler({}, {})
+    await replyDocOp(mock, { output: '0. [p1] 文本' })
+    const res = (await pending) as { success: boolean; output: string }
+    expect(res.output).toContain('[p1]')
+    expect(mock.ipc.broadcasts.some((b) => b.event === 'doc-changed')).toBe(false)
+  })
+
+  it('渲染端返回错误时透传给模型', async () => {
+    const { mock, docId } = await setupWithDoc()
+    const pending = agentTool(mock, DOC_OPS.deleteBlocks).handler({ blockIds: ['ghost'] }, {})
+    await replyDocOp(mock, { error: '指定的块都不在文档顶层', docId })
+    const res = (await pending) as { success: boolean; error: string }
+    expect(res).toMatchObject({ success: false, error: '指定的块都不在文档顶层' })
+  })
+
+  it('渲染端操作的文档与当前文档不一致时放弃落库', async () => {
+    const { mock } = await setupWithDoc()
+    const pending = agentTool(mock, DOC_OPS.setParagraphText).handler({ blockId: 'p1', text: 'x' }, {})
+    await replyDocOp(mock, { data: EDITED_DATA, output: '已更新', docId: 'other-doc' })
+    const res = (await pending) as { success: boolean; error: string }
+    expect(res.success).toBe(false)
+    expect(res.error).toContain('文档已切换')
+    expect(mock.ipc.broadcasts.some((b) => b.event === 'doc-changed')).toBe(false)
+  })
+
+  it('对话期间：工具改动落地，并在本轮首次改动前自动快照（同轮只落一条）', async () => {
+    const { mock, docId } = await setupWithDoc()
+    const execute = executeMock(mock)
+    execute.mockImplementation(async (req: { tools?: PluginToolDefinition[] }) => {
+      const target = (req.tools ?? []).find((t) => t.id === DOC_OPS.setParagraphText)!
+      // 连续两次改动：只有首次需要快照
+      for (const text of ['新内容', '再改一次']) {
+        const pending = target.handler({ blockId: 'p1', text }, {})
+        await replyDocOp(mock, { data: EDITED_DATA, output: `已更新：${text}`, docId })
+        const res = (await pending) as { success: boolean }
+        expect(res.success).toBe(true)
+      }
+      // 读操作不应触发额外快照
+      const read = (req.tools ?? []).find((t) => t.id === DOC_OPS.read)!
+      const readPending = read.handler({}, {})
+      await replyDocOp(mock, { output: '内容' })
+      await readPending
+      return { conversationId: 'c1' }
+    })
+
+    await handler(mock, 'chat-send')({
+      providerId: 'p1',
+      messages: [{ id: 'u1', role: 'user', content: '改写第一段' }],
+      assistantId: 'a1',
+    })
+
+    const list = (await handler(mock, 'snapshot-list')({ id: docId })) as { snapshots: Array<{ label: string }> }
+    expect(list.snapshots.length).toBe(1)
+    expect(list.snapshots[0].label).toBe('snapshot.aiEdit')
+  })
+
+  it('chat-send 把文档工具交给宿主执行引擎', async () => {
+    const { mock } = await setupWithDoc()
+    await handler(mock, 'chat-send')({
+      providerId: 'p1',
+      messages: [{ id: 'u1', role: 'user', content: '读一下文档' }],
+      assistantId: 'a1',
+    })
+    const req = executeMock(mock).mock.calls[0][0] as { tools: PluginToolDefinition[]; system: string }
+    expect(req.tools.length).toBe(Object.values(DOC_OPS).length)
+    expect(req.system).toContain('doc_outline')
   })
 })

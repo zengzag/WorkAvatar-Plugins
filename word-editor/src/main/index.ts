@@ -6,14 +6,19 @@
 
 import path from 'path'
 import fs from 'fs'
-import type { PluginContext, PluginMainModule } from '@workavatar/plugin-sdk'
+import type { PluginContext, PluginMainModule, PluginToolDefinition } from '@workavatar/plugin-sdk'
 import { BLANK_DOCUMENT_JSON } from '../shared/blank-document'
 import { docStore, filesDir, createTaskWorkspace, isWithinTaskRoot } from './doc-store'
 import { DOC_SYSTEM_PROMPT } from './system-prompt'
+import { listSystemFonts } from './system-fonts'
+import { docOpBridge } from './doc-op-bridge'
+import { beginAiEditTurn, createWordEditorAgentTools, endAiEditTurn } from './doc-tools'
 
 let ctxRef: PluginContext | null = null
 const activeAborts = new Map<string, Set<AbortController>>()
 let unsubscribeEvents: Array<() => void> = []
+/** AI 文档工具（activate 时创建，供插件内对话与数字员工共用） */
+let agentTools: PluginToolDefinition[] = []
 
 function broadcast(event: string, payload?: unknown): void {
   ctxRef?.ipc.broadcast(event, payload)
@@ -180,6 +185,18 @@ function registerIpc(ctx: PluginContext): void {
     return { ok: true }
   })
 
+  // ====== 系统字体（编辑器字体下拉展示 + 画布直通渲染） ======
+  ctx.ipc.handle('font-list', () => ({ fonts: listSystemFonts() }))
+
+  // ====== 文档操作桥（工具 → 渲染端活跃编辑器） ======
+  // 渲染端挂载/卸载编辑页面时上报在线状态；执行结果经 doc-op-result 回传
+  ctx.ipc.handle('doc-op-attach', (payload: any) => {
+    docOpBridge.setAttached(payload?.attached !== false)
+    return { ok: true }
+  })
+
+  ctx.ipc.handle('doc-op-result', (payload: any) => docOpBridge.settle(payload))
+
   // ====== AI 对话（复用宿主通用对话引擎） ======
   ctx.ipc.handle('chat-send', async (payload: any, signal?: AbortSignal) => {
     const execute = ctx.services.execute
@@ -231,6 +248,8 @@ function registerIpc(ctx: PluginContext): void {
 
     let lastConvId: string | null = isNewConv ? null : convId
 
+    // 本轮起止：文档工具在首个改动前自动落快照，便于用户回退整轮 AI 改动
+    beginAiEditTurn()
     try {
       const result = await execute.execute(
         {
@@ -240,7 +259,7 @@ function registerIpc(ctx: PluginContext): void {
           messages,
           conversationId: convId,
           system,
-          tools: [],
+          tools: agentTools,
           useSkills: false,
           enableThinking: true,
           minimalMode: false,
@@ -287,6 +306,7 @@ function registerIpc(ctx: PluginContext): void {
       }
       return { conversationId: lastConvId, workspacePath } as { conversationId: string; workspacePath: string | null }
     } finally {
+      endAiEditTurn()
       const set = activeAborts.get(abortKey)
       set?.delete(controller)
       if (set && set.size === 0) activeAborts.delete(abortKey)
@@ -354,12 +374,20 @@ export const migrations = []
 export function activate(ctx: PluginContext): void {
   ctxRef = ctx
   docStore.init(ctx)
+  docOpBridge.init(ctx)
 
   // 默认打开最近文档，便于后续能力尽快可用
   const docs = docStore.list()
   if (docs.length > 0) docStore.setCurrentDocId(docs[0].id)
 
   registerIpc(ctx)
+
+  // AI 文档工具：插件内对话直接使用；同时注册进宿主工具表供数字员工调用
+  agentTools = createWordEditorAgentTools({
+    snapshotLabel: t('snapshot.aiEdit'),
+    onDocChanged: (id, data) => broadcast('doc-changed', { doc: { id, data }, source: 'ai' }),
+  })
+  ctx.contributions.registerAgentTools(agentTools)
 
   const events = ctx.services.events
   if (events) {
@@ -376,6 +404,9 @@ export function deactivate(): void {
     for (const c of set) c.abort()
   }
   activeAborts.clear()
+  docOpBridge.cancelAll()
+  docOpBridge.setAttached(false)
+  agentTools = []
   unsubscribeEvents.forEach((unsub) => { try { unsub() } catch { /* ignore */ } })
   unsubscribeEvents = []
   ctxRef = null

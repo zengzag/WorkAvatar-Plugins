@@ -18,6 +18,61 @@ import path from 'node:path'
 const WORKER_RE =
   /new Worker\(new URL\(\s*\/\* @vite-ignore \*\/\s*"" \+ new URL\("(assets\/worker-[^"]+)",\s*import\.meta\.url\)\.href,\s*import\.meta\.url\s*\),\s*\{ type: "module" \}\)/g
 
+// ====== 系统字体支持（宿主 word-editor 注入 __WE_SYSTEM_*__ 全局后生效） ======
+
+/** 字体族解析（paintStyle 的 En）：在注册表/替换表都未命中时，若族名在宿主注入的
+ *  `__WE_SYSTEM_FONTS__` 集合内则原样返回 —— 画布 measure/draw 直接用系统安装字体
+ *  （二者都经此解析，宽度与字形一致），不再替换为默认克隆 Arimo。 */
+const EN_RESOLVE_SRC = `function En(t) {
+  const e = it(t);
+  if (e) return { clone: e.family, substituted: !1 };
+  const n = t.trim().toLowerCase().replace(/^["']|["']$/g, ""), s = ct[n];
+  return s ? { clone: s, substituted: !1 } : { clone: lt, substituted: !0 };
+}`
+const EN_RESOLVE_DST = `function En(t) {
+  const e = it(t);
+  if (e) return { clone: e.family, substituted: !1 };
+  const n = t.trim().toLowerCase().replace(/^["']|["']$/g, ""), s = ct[n];
+  if (s) return { clone: s, substituted: !1 };
+  if (globalThis.__WE_SYSTEM_FONTS__?.has(t.trim())) return { clone: t.trim(), substituted: !1 };
+  return { clone: lt, substituted: !0 };
+}`
+
+/** 字体下拉列表（paintStyle 的 Bn，Ribbon 下拉 / 状态同步 / 浮动格式条菜单共用）：
+ *  末尾追加宿主注入的 `__WE_SYSTEM_FONT_LIST__`（{value,label}，宿主已剔除内置克隆覆盖项），
+ *  并与内置/自定义条目按族名去重。 */
+const FONT_LIST_SRC = `function Bn(t) {
+  const e = new Set((t?.disableBuiltin ?? []).map((o) => fe(o).trim().toLowerCase())), n = yt.filter((o) => !e.has(fe(o.value).trim().toLowerCase())), s = (t?.fonts ?? []).filter((o) => ye(o)).map((o) => ({ value: o.family, label: o.label ?? o.family }));
+  return [...n, ...s];
+}`
+const FONT_LIST_DST = `function Bn(t) {
+  const e = new Set((t?.disableBuiltin ?? []).map((o) => fe(o).trim().toLowerCase())), n = yt.filter((o) => !e.has(fe(o.value).trim().toLowerCase())), s = (t?.fonts ?? []).filter((o) => ye(o)).map((o) => ({ value: o.family, label: o.label ?? o.family }));
+  const w = globalThis.__WE_SYSTEM_FONT_LIST__ ?? [];
+  return [...n, ...s, ...w.filter((o) => !n.concat(s).some((p) => fe(p.value).trim().toLowerCase() === fe(o.value).trim().toLowerCase()))];
+}`
+
+/**
+ * 应用系统字体补丁（仅主线程渲染分块；导出 worker 仍按注册字节渲染，系统字体由
+ * PDF/DOCX 导出按既有回退逻辑处理）。
+ * @returns 命中的补丁处数
+ */
+function patchSystemFonts(destDir) {
+  let patched = 0
+  for (const entry of fs.readdirSync(destDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.js')) continue
+    const file = path.join(destDir, entry.name)
+    const code = fs.readFileSync(file, 'utf-8')
+    let next = code
+    if (next.includes(EN_RESOLVE_SRC)) next = next.replaceAll(EN_RESOLVE_SRC, EN_RESOLVE_DST)
+    if (next.includes(FONT_LIST_SRC)) next = next.replaceAll(FONT_LIST_SRC, FONT_LIST_DST)
+    if (next !== code) {
+      fs.writeFileSync(file, next, 'utf-8')
+      patched++
+    }
+  }
+  return patched
+}
+
 /**
  * @param {string} destDir vendor 目标目录（已拷贝完 dist-lib 内容）
  * @param {{ id: string }} manifest 插件 manifest（用于生成 plugin:// 基准 URL）
@@ -68,5 +123,6 @@ export default function patchWordCanvas(destDir, manifest) {
     JSON.stringify({ workers: workers.map((f) => `assets/${f}`) }, null, 2),
     'utf-8'
   )
-  return { patched: patched + workerPatched, workers }
+  const fontPatched = patchSystemFonts(destDir)
+  return { patched: patched + workerPatched + fontPatched, workers }
 }

@@ -7,11 +7,12 @@ import {
   EditOutlined, SaveOutlined, RocketOutlined, HistoryOutlined,
   FileWordOutlined, FilePdfOutlined, DeleteOutlined, DownloadOutlined,
 } from '@ant-design/icons'
-import { useWordEditorStore, registerEditorBridge, type EditorBridge } from './word-editor.store'
+import { useWordEditorStore, registerEditorBridge, markEditorSynced, type EditorBridge } from './word-editor.store'
 import { WordCanvasHost } from './WordCanvasHost'
 import { AiChatPanel } from './AiChatPanel'
 import { SnapshotsPanel } from './SnapshotsPanel'
 import { SettingsDrawer } from './SettingsDrawer'
+import { installDocOpHost } from './doc-op-host'
 import { we, hostT } from './store'
 
 export function WordEditorPage() {
@@ -87,6 +88,8 @@ export function WordEditorPage() {
   useEffect(() => {
     const unsub = we.onDocChanged(({ doc: remote }) => {
       remoteRef.current(remote.data)
+      // 外部写入（快照恢复 / AI 编辑）后同步变更签名，避免被误判为未保存改动
+      markEditorSynced()
       const cur = useWordEditorStore.getState().doc
       if (cur && cur.id === remote.id) {
         useWordEditorStore.setState({ doc: { ...cur, data: remote.data }, dirty: false })
@@ -98,6 +101,9 @@ export function WordEditorPage() {
       unsub(); unsub2(); unsub3()
     }
   }, [])
+
+  // 安装 AI 文档操作宿主（主进程工具 → 当前编辑器）
+  useEffect(() => installDocOpHost(), [])
 
   // 消费 FileViewerModal "编辑文档"跳转携带的 ?import=<path>
   useEffect(() => {

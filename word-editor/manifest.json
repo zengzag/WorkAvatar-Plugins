@@ -14,6 +14,8 @@
     "snapshot-list", "snapshot-create", "snapshot-restore", "snapshot-delete",
     "providers-list",
     "settings-get", "settings-set",
+    "font-list",
+    "doc-op-attach", "doc-op-result",
     "chat-send", "chat-cancel", "chat-history", "chats-list", "chat-delete", "chat-open-dir"
   ],
   "capabilities": [

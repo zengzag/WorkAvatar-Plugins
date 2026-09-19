@@ -5,6 +5,9 @@ import {
   clampTop,
   clampFloatingLayers,
   installFloatingLayerClamp,
+  stackStyleGroupButtons,
+  pinnedGroupIds,
+  nextCollapsibleGroup,
 } from '../../../word-editor/src/renderer/wordcanvas-tweaks'
 
 /**
@@ -214,5 +217,183 @@ describe('installFloatingLayerClamp', () => {
 
     stop()
     expect(disconnected).toBe(true)
+  })
+})
+
+// ====== Ribbon 宽度自适应：收纳策略 ======
+
+describe('pinnedGroupIds', () => {
+  it('按选项卡给出带前缀的受保护分组 id（home 保护剪贴板/字体/段落）', () => {
+    const pinned = pinnedGroupIds('home')
+    expect(pinned.has('home.clipboard')).toBe(true)
+    expect(pinned.has('home.font')).toBe(true)
+    expect(pinned.has('home.paragraph')).toBe(true)
+    expect(pinned.has('home.styles')).toBe(false)
+  })
+
+  it('未配置的选项卡（如动态的 table）返回空集合，由「保护第一个分组」兜底', () => {
+    expect(pinnedGroupIds('table').size).toBe(0)
+  })
+})
+
+describe('nextCollapsibleGroup', () => {
+  const pinned = pinnedGroupIds('home')
+
+  it('从右往左找第一个未受保护的分组（先收纳「编辑」再收纳「样式」）', () => {
+    const groups = ['home.clipboard', 'home.font', 'home.paragraph', 'home.styles', 'home.editing']
+    expect(nextCollapsibleGroup(groups, pinned)).toBe(4)
+    expect(nextCollapsibleGroup(groups.slice(0, 4), pinned)).toBe(3)
+  })
+
+  it('第一个分组始终保留（其它全是受保护分组时返回 -1）', () => {
+    expect(nextCollapsibleGroup(['home.clipboard', 'home.font', 'home.paragraph'], pinned)).toBe(-1)
+    expect(nextCollapsibleGroup(['home.clipboard'], pinned)).toBe(-1)
+  })
+
+  it('受保护的中间分组被跳过，不影响更右侧未保护分组的收纳', () => {
+    const groups = ['a.first', 'a.pinned', 'a.mid', 'a.pinned2', 'a.last']
+    const set = new Set(['a.pinned', 'a.pinned2'])
+    expect(nextCollapsibleGroup(groups, set)).toBe(4)
+    expect(nextCollapsibleGroup(groups.slice(0, 4), set)).toBe(2)
+  })
+
+  it('空面板返回 -1', () => {
+    expect(nextCollapsibleGroup([], new Set())).toBe(-1)
+  })
+})
+
+// ====== 样式分组按钮竖排 ======
+
+interface FakeNode {
+  tagName: string
+  className: string
+  classList: { contains(cls: string): boolean }
+  nextElementSibling: FakeNode | null
+  parentElement: FakeControls | null
+}
+
+interface FakeControls {
+  children: FakeNode[]
+  insertBefore(el: FakeNode, before: FakeNode | null): void
+}
+
+function fakeRibbonBtn(): FakeNode {
+  return {
+    tagName: 'BUTTON',
+    className: 'rib-btn',
+    classList: { contains: (cls) => cls === 'rib-btn' },
+    nextElementSibling: null,
+    parentElement: null,
+  }
+}
+
+function fakeGallery(): FakeNode {
+  return {
+    tagName: 'DIV',
+    className: 'rib-gallery',
+    classList: { contains: (cls) => cls === 'rib-gallery' },
+    nextElementSibling: null,
+    parentElement: null,
+  }
+}
+
+/** 构造 rib-controls（gallery + 若干子节点）并维护 nextElementSibling 链 */
+function fakeControls(children: FakeNode[]): FakeControls {
+  const controls: FakeControls = {
+    children,
+    insertBefore(el, before) {
+      const idx = before ? children.indexOf(before) : children.length
+      children.splice(idx < 0 ? children.length : idx, 0, el)
+      // 模拟 DOM 链维护：重排兄弟指针
+      for (let i = 0; i < children.length; i++) {
+        children[i].nextElementSibling = children[i + 1] ?? null
+        children[i].parentElement = controls
+      }
+    },
+  }
+  for (let i = 0; i < children.length; i++) {
+    children[i].nextElementSibling = children[i + 1] ?? null
+    children[i].parentElement = controls
+  }
+  return controls
+}
+
+function fakeGalleryRoot(galleries: FakeNode[]): ParentNode {
+  return { querySelectorAll: () => galleries } as unknown as ParentNode
+}
+
+describe('stackStyleGroupButtons', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function stubCreateElement(): FakeNode[] {
+    const created: FakeNode[] = []
+    vi.stubGlobal('document', {
+      createElement: () => {
+        const col: FakeNode & { style: { cssText: string }; children: FakeNode[]; appendChild(el: FakeNode): void } = {
+          tagName: 'DIV',
+          className: '',
+          classList: { contains: (cls) => cls === 'we-style-actions' },
+          nextElementSibling: null,
+          parentElement: null,
+          style: { cssText: '' },
+          children: [],
+          appendChild(el) { col.children.push(el) },
+        }
+        created.push(col)
+        return col
+      },
+    })
+    return created
+  }
+
+  it('样式库之后的连续 rib-btn 被包进纵向容器，容器紧跟样式库', () => {
+    const created = stubCreateElement()
+    const gallery = fakeGallery()
+    const b1 = fakeRibbonBtn()
+    const b2 = fakeRibbonBtn()
+    const b3 = fakeRibbonBtn()
+    const controls = fakeControls([gallery, b1, b2, b3])
+    void controls
+
+    const moved = stackStyleGroupButtons(fakeGalleryRoot([gallery]))
+    expect(moved).toBe(3)
+    expect(created).toHaveLength(1)
+    expect(created[0].className).toBe('we-style-actions')
+    expect(created[0].children).toEqual([b1, b2, b3])
+    // 容器插到 gallery 之后
+    expect(controls.children[0]).toBe(gallery)
+    expect(controls.children[1]).toBe(created[0])
+  })
+
+  it('非按钮的兄弟节点截断收集，不足 2 个按钮时不处理', () => {
+    const created = stubCreateElement()
+    const gallery = fakeGallery()
+    const b1 = fakeRibbonBtn()
+    const sep = { tagName: 'DIV', className: 'sep', classList: { contains: () => false }, nextElementSibling: null, parentElement: null } as FakeNode
+    const controls = fakeControls([gallery, b1, sep])
+    void controls
+
+    expect(stackStyleGroupButtons(fakeGalleryRoot([gallery]))).toBe(0)
+    expect(created).toHaveLength(0)
+    expect(controls.children).toEqual([gallery, b1, sep])
+  })
+
+  it('样式库后已是纵向容器时不再处理（幂等）', () => {
+    const created = stubCreateElement()
+    const gallery = fakeGallery()
+    const column = {
+      tagName: 'DIV',
+      className: 'we-style-actions',
+      classList: { contains: (cls: string) => cls === 'we-style-actions' },
+      nextElementSibling: null,
+      parentElement: null,
+    } as FakeNode
+    const controls = fakeControls([gallery, column])
+    void controls
+
+    expect(stackStyleGroupButtons(fakeGalleryRoot([gallery]))).toBe(0)
+    expect(created).toHaveLength(0)
   })
 })

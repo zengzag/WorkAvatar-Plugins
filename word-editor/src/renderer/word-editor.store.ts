@@ -111,6 +111,16 @@ export function registerEditorBridge(bridge: EditorBridge | null): void {
   pollTimer = setInterval(() => useWordEditorStore.getState().syncDirty(), POLL_MS)
 }
 
+/** 编辑器桥（AI 文档操作需要直接读写编辑器内容） */
+export function getEditorBridge(): EditorBridge | null {
+  return editorBridge
+}
+
+/** 内容被外部写入编辑器后同步变更签名，避免轮询把外部改动误判为用户未保存改动 */
+export function markEditorSynced(): void {
+  if (editorBridge) lastSignature = editorBridge.getSignature()
+}
+
 export const useWordEditorStore = create<WordEditorState>((set, get) => ({
   docs: [],
   doc: null,

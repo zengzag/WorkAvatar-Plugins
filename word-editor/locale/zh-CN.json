@@ -20,6 +20,7 @@
   "page.exportOk": "导出成功",
   "page.exportFail": "导出失败：{{message}}",
   "page.history": "版本历史",
+  "snapshot.aiEdit": "AI 编辑前",
   "page.historyEmpty": "暂无快照",
   "page.historyRestore": "恢复",
   "page.restored": "已恢复到该版本",
@@ -27,6 +28,7 @@
   "page.settings": "设置",
   "page.empty.desc": "新建文档或导入 .docx 开始编辑",
   "page.loadingEditor": "正在加载编辑器…",
+  "page.toolbarMore": "更多工具",
   "page.editorLoadFailed": "编辑器加载失败",
   "page.editorNotReady": "编辑器尚未就绪，请稍候",
   "page.retry": "重试",
@@ -60,5 +62,6 @@
   "errors.executeUnavailable": "宿主未提供 execute 能力",
   "errors.missingMessages": "缺少消息内容",
   "errors.noProvider": "没有可用的模型供应商",
+  "errors.noDoc": "当前没有打开的文档",
   "errors.workspaceNotFound": "任务工作区不存在"
 }

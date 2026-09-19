@@ -20,6 +20,7 @@
   "page.exportOk": "Exported",
   "page.exportFail": "Export failed: {{message}}",
   "page.history": "Version History",
+  "snapshot.aiEdit": "Before AI edit",
   "page.historyEmpty": "No snapshots yet",
   "page.historyRestore": "Restore",
   "page.restored": "Restored to this version",
@@ -27,6 +28,7 @@
   "page.settings": "Settings",
   "page.empty.desc": "Create a document or import a .docx to start editing",
   "page.loadingEditor": "Loading editor…",
+  "page.toolbarMore": "More tools",
   "page.editorLoadFailed": "Failed to load editor",
   "page.editorNotReady": "Editor is not ready yet",
   "page.retry": "Retry",
@@ -60,5 +62,6 @@
   "errors.executeUnavailable": "Host does not provide execute capability",
   "errors.missingMessages": "Missing messages",
   "errors.noProvider": "No LLM provider available",
+  "errors.noDoc": "No document is open",
   "errors.workspaceNotFound": "Task workspace not found"
 }

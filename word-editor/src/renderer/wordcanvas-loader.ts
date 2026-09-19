@@ -32,8 +32,83 @@ export interface WordCanvasModule {
   darkCanvasTheme?: Record<string, unknown>
 }
 
+// ====== headless 文档编辑引擎（vendor query.js）======
+// AI 文档操作不改走 DOM，而是用编辑器自带的 headless 编辑引擎计算 Document 变更，
+// 保证产出的文档结构与渲染结果一致。
+
+export interface DocRunStyle {
+  [key: string]: unknown
+}
+
+export interface DocRun {
+  text: string
+  style?: DocRunStyle
+}
+
+export interface DocBlock {
+  kind: string
+  id: string
+  revision?: number
+  runs?: DocRun[]
+  style?: Record<string, unknown>
+  rows?: Array<{ cells: Array<{ id: string; blocks: DocBlock[] }> }>
+}
+
+export interface DocParagraph extends DocBlock {
+  kind: 'paragraph'
+  runs: DocRun[]
+  style: Record<string, unknown>
+}
+
+export interface DocStyle {
+  id: string
+  name: string
+  basedOn?: string
+  char?: DocRunStyle
+  para?: Record<string, unknown>
+}
+
+export interface DocStylesheet {
+  defaultStyleId?: string
+  styles: DocStyle[]
+}
+
+export interface DocDocument {
+  section?: Record<string, unknown>
+  blocks: DocBlock[]
+  stylesheet?: DocStylesheet
+  [key: string]: unknown
+}
+
+/** headless 文档编辑器（query.js 的 DocumentEditor，仅声明本插件用到的成员） */
+export interface DocEditor {
+  doc: DocDocument
+  readonly lastInsertedId: string | null
+  getParagraph(id: string): DocParagraph | undefined
+  setParagraphText(blockId: string, text: string, style?: DocRunStyle): DocEditor
+  replaceText(blockId: string, start: number, end: number, text: string): DocEditor
+  setParagraphStyle(blockId: string, patch: Record<string, unknown>): DocEditor
+  removeBlock(blockId: string): DocEditor
+  insertParagraph(
+    referenceId: string,
+    text: string,
+    options?: { position?: 'before' | 'after'; style?: Record<string, unknown>; runStyle?: DocRunStyle }
+  ): DocEditor
+  moveBlock(blockId: string, toIndex: number): DocEditor
+  replaceAllText(search: string, replace: string): DocEditor
+  setStyleByName(blockId: string, styleName: string): DocEditor
+  commit(ops: Array<Record<string, unknown>>): DocEditor
+}
+
+export interface DocQueryModule {
+  DocumentEditor: new (doc: unknown) => DocEditor
+  getParagraphs(doc: unknown): DocParagraph[]
+  textOf(block: unknown): string
+}
+
 let modulePromise: Promise<WordCanvasModule> | null = null
 let workersPromise: Promise<void> | null = null
+let queryPromise: Promise<DocQueryModule> | null = null
 
 /** 预取 Worker 源码并注入 blob URL 映射（导入/导出管道依赖；失败不阻塞编辑器本体） */
 export function prepareWorkers(): Promise<void> {
@@ -68,10 +143,23 @@ async function doLoad(): Promise<WordCanvasModule> {
   return (await import(/* @vite-ignore */ `${VENDOR_BASE}wordcanvas.js`)) as WordCanvasModule
 }
 
+/** 加载 headless 文档编辑引擎（单例 Promise；与编辑器同源 vendor 分块） */
+export function loadQueryModule(): Promise<DocQueryModule> {
+  if (!queryPromise) queryPromise = doLoadQuery()
+  return queryPromise
+}
+
+async function doLoadQuery(): Promise<DocQueryModule> {
+  // query 分块自身不建 Worker，但其依赖的排版分块会引用 Worker URL 全局映射
+  await prepareWorkers()
+  return (await import(/* @vite-ignore */ `${VENDOR_BASE}query.js`)) as DocQueryModule
+}
+
 /** 释放 blob URL（插件卸载时调用） */
 export function releaseWorkers(): void {
   const g = globalThis as unknown as Record<string, unknown>
   delete g[WORKER_MAP_KEY]
   workersPromise = null
   modulePromise = null
+  queryPromise = null
 }
