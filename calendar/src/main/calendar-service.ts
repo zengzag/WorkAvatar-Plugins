@@ -20,7 +20,6 @@ export function ensureCalendarTables(db: PluginDatabase): void {
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       description TEXT DEFAULT '',
-      location TEXT DEFAULT '',
       -- unix 秒
       start_at INTEGER NOT NULL,
       end_at INTEGER NOT NULL,
@@ -160,7 +159,6 @@ export interface CalendarEvent {
   id: string
   title: string
   description: string
-  location: string
   start_at: number
   end_at: number
   all_day: boolean
@@ -263,7 +261,6 @@ export interface ListTodosParams {
 export interface CreateEventInput {
   title: string
   description?: string
-  location?: string
   start_at: number
   end_at?: number
   all_day?: boolean
@@ -279,7 +276,6 @@ export interface UpdateEventInput {
   id: string
   title?: string
   description?: string
-  location?: string
   start_at?: number
   end_at?: number
   all_day?: boolean
@@ -372,6 +368,22 @@ class CalendarService {
   constructor(private ctx: PluginContext) {
     this.db = ctx.storage.openSqlite('index')
     ensureCalendarTables(this.db)
+    this.refreshLegacyEventReminders()
+  }
+
+  /** 位置功能已移除：刷新历史提醒负载，避免旧提醒正文继续携带位置信息 */
+  private refreshLegacyEventReminders(): void {
+    const rows = this.db.prepare(
+      `SELECT DISTINCT target_id FROM calendar_reminders WHERE target_type = 'event' AND payload_json LIKE '%location%'`
+    ).all() as Array<{ target_id: string }>
+    for (const { target_id } of rows) {
+      const event = this.getEvent(target_id)
+      if (event) this.regenerateEventReminders(event)
+      else this.db.prepare('DELETE FROM calendar_reminders WHERE target_type = ? AND target_id = ?').run('event', target_id)
+    }
+    if (rows.length > 0) {
+      this.ctx.services.logger.info(`Refreshed ${rows.length} event reminder(s) after location field removal`)
+    }
   }
 
   // ====== Settings ======
@@ -449,10 +461,10 @@ class CalendarService {
     const tzid = input.tzid || Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Shanghai'
 
     this.db.prepare(
-      `INSERT INTO calendar_events (id, title, description, location, start_at, end_at, all_day, tzid, color, recurrence_rule, reminders_json, employee_id, source, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO calendar_events (id, title, description, start_at, end_at, all_day, tzid, color, recurrence_rule, reminders_json, employee_id, source, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
-      id, input.title, input.description || '', input.location || '',
+      id, input.title, input.description || '',
       startAt, endAt, input.all_day ? 1 : 0, tzid, input.color || 'default',
       ruleJson, JSON.stringify(reminders),
       input.employee_id ?? null, input.source || 'user', now, now
@@ -489,9 +501,9 @@ class CalendarService {
     }
     const ruleJson = merged.recurrence_rule ? JSON.stringify(merged.recurrence_rule) : ''
     this.db.prepare(
-      `UPDATE calendar_events SET title=?, description=?, location=?, start_at=?, end_at=?, all_day=?, tzid=?, color=?, recurrence_rule=?, reminders_json=?, updated_at=? WHERE id=?`
+      `UPDATE calendar_events SET title=?, description=?, start_at=?, end_at=?, all_day=?, tzid=?, color=?, recurrence_rule=?, reminders_json=?, updated_at=? WHERE id=?`
     ).run(
-      merged.title, merged.description, merged.location,
+      merged.title, merged.description,
       merged.start_at, merged.end_at, merged.all_day ? 1 : 0, merged.tzid,
       merged.color, ruleJson, JSON.stringify(merged.reminders), now, input.id
     )
@@ -1098,14 +1110,13 @@ class CalendarService {
         this.insertReminder('event', event.id, triggerAt,
           this.buildReminderPayload({
             title: event.title,
-            body: this.formatEventReminderBody(event, inst.instance_start_at, offsetMin),
+            body: this.formatEventReminderBody(inst.instance_start_at, offsetMin),
             clickTarget: 'event',
             clickId: event.id,
             i18nKey: offsetMin === 0 ? 'calendar.eventStartingNow' : offsetMin < 0 ? 'calendar.eventStartingIn' : 'calendar.eventStarted',
             i18nParams: {
               minutes: -offsetMin,
               time: this.formatReminderTime(inst.instance_start_at),
-              location: event.location ? ` · ${event.location}` : '',
             },
             startAt: inst.instance_start_at,
           })
@@ -1588,7 +1599,6 @@ class CalendarService {
       id: row.id,
       title: row.title,
       description: row.description || '',
-      location: row.location || '',
       start_at: row.start_at,
       end_at: row.end_at,
       all_day: !!row.all_day,
@@ -1640,12 +1650,10 @@ class CalendarService {
     return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
   }
 
-  private formatEventReminderBody(event: CalendarEvent, startAt: number, offsetMin: number): string {
+  private formatEventReminderBody(startAt: number, offsetMin: number): string {
     const time = this.formatReminderTime(startAt)
     const prefix = offsetMin === 0 ? '即将开始' : offsetMin < 0 ? `${-offsetMin} 分钟后开始` : '已开始'
-    let body = `${prefix} · ${time}`
-    if (event.location) body += ` · ${event.location}`
-    return body
+    return `${prefix} · ${time}`
   }
 
   private formatTodoReminderBody(todo: CalendarTodo, offsetMin: number): string {
@@ -1715,10 +1723,10 @@ class CalendarService {
         if (dup) { skippedEvents++; continue }
         const id = generateId()
         this.db.prepare(
-          `INSERT INTO calendar_events (id, title, description, location, start_at, end_at, all_day, tzid, color, recurrence_rule, reminders_json, employee_id, source, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO calendar_events (id, title, description, start_at, end_at, all_day, tzid, color, recurrence_rule, reminders_json, employee_id, source, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
-          id, ev.title, ev.description || '', ev.location || '',
+          id, ev.title, ev.description || '',
           ev.start_at, ev.end_at ?? ev.start_at, ev.all_day ? 1 : 0, ev.tzid || '',
           ev.color || 'default', ev.recurrence_rule ? JSON.stringify(ev.recurrence_rule) : '',
           JSON.stringify(ev.reminders ?? []), ev.employee_id ?? null, ev.source || 'user',

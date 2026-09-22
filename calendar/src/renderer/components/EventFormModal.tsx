@@ -124,7 +124,6 @@ const EventFormModal: React.FC<EventFormModalProps> = ({
     const payload: CreateEventInput | UpdateEventInput = {
       title: values.title,
       description: values.description || '',
-      location: '',
       start_at: Math.floor(startMs / MS),
       end_at: Math.floor(endMs / MS),
       all_day: !!values.allDay,

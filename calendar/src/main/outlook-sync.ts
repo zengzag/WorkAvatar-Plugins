@@ -460,7 +460,6 @@ class OutlookSyncService {
       categories: [TARGET_NAME],
       ...this.reminderToGraph(event.reminders),
     }
-    if (event.location) body.location = { displayName: event.location }
     const recurrence = event.recurrence_rule ? this.ruleToGraphRecurrence(event.recurrence_rule, event.start_at, tz) : undefined
     if (recurrence) body.recurrence = recurrence
     return body

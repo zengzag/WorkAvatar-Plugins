@@ -52,7 +52,6 @@ export interface CalendarEvent {
   id: string
   title: string
   description: string
-  location: string
   start_at: number
   end_at: number
   all_day: boolean
@@ -184,7 +183,6 @@ export interface ListTodosParams {
 export interface CreateEventInput {
   title: string
   description?: string
-  location?: string
   start_at: number
   end_at?: number
   all_day?: boolean
@@ -200,7 +198,6 @@ export interface UpdateEventInput {
   id: string
   title?: string
   description?: string
-  location?: string
   start_at?: number
   end_at?: number
   all_day?: boolean
