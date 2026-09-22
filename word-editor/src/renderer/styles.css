@@ -4,16 +4,24 @@
 
 :root {
   --we-bg: #ffffff;
+  --we-text: rgba(0, 0, 0, 0.88);
   --we-muted: #8c8c8c;
   --we-border: #e8e8e8;
   --we-hover: rgba(0, 0, 0, 0.04);
+  --we-accent: #1677ff;
+  --we-accent-hover: #0958d9;
+  --we-accent-soft: rgba(22, 119, 255, 0.08);
 }
 
 [data-theme='dark'] {
   --we-bg: #141414;
+  --we-text: rgba(255, 255, 255, 0.85);
   --we-muted: #8c8c8c;
   --we-border: #303030;
   --we-hover: rgba(255, 255, 255, 0.06);
+  --we-accent: #4096ff;
+  --we-accent-hover: #69b1ff;
+  --we-accent-soft: rgba(64, 150, 255, 0.16);
 }
 
 /* 深色编辑器外壳调色（仅用于下方 [data-theme='dark'] 覆盖；页面纸张仍为白色，
@@ -309,6 +317,312 @@ html.we-page-hidden :is(
 
 .we-snapshot-row:hover {
   background: var(--we-hover);
+}
+
+/* ====== AI 助手面板 ====== */
+
+.we-ai-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--we-bg);
+}
+
+/* 面板内顶栏（会话历史 / 新建），与宿主 GenericChatView 头部同规格 */
+.we-ai-topbar {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--we-border);
+  flex-shrink: 0;
+}
+
+.we-ai-chat {
+  flex: 1;
+  min-height: 0;
+}
+
+/* --- 划词横幅 --- */
+
+.we-ai-banner {
+  margin: 8px 10px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--we-accent);
+  border-radius: 8px;
+  background: var(--we-accent-soft);
+  flex-shrink: 0;
+}
+
+.we-ai-banner-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.we-ai-banner-icon {
+  color: var(--we-accent);
+  font-size: 13px;
+}
+
+.we-ai-banner-title {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--we-accent);
+}
+
+.we-ai-banner-quote {
+  margin: 4px 0 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--we-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.we-ai-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* --- 对话中的文档级快捷指令条（单行横向滚动） --- */
+
+.we-ai-quickbar {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px 0;
+  overflow-x: auto;
+  flex-shrink: 0;
+  scrollbar-width: none;
+}
+
+.we-ai-quickbar::-webkit-scrollbar {
+  display: none;
+}
+
+.we-ai-chip {
+  flex: 0 0 auto;
+}
+
+/* --- 欢迎页 --- */
+
+.we-ai-welcome {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.we-ai-hero {
+  text-align: center;
+  padding: 8px 4px 2px;
+  flex-shrink: 0;
+}
+
+.we-ai-hero-badge {
+  width: 46px;
+  height: 46px;
+  margin: 0 auto 8px;
+  border-radius: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 23px;
+  color: #fff;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+}
+
+.we-ai-hero-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--we-text);
+}
+
+.we-ai-hero-sub {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--we-muted);
+}
+
+/* 能力卡片（2 列网格） */
+.we-ai-capgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.we-ai-capcard {
+  border: 1px solid var(--we-border);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--we-bg);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.we-ai-capcard:hover {
+  border-color: var(--we-accent);
+  box-shadow: 0 2px 10px rgba(22, 119, 255, 0.1);
+}
+
+.we-ai-caphead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--we-text);
+  margin-bottom: 4px;
+}
+
+.we-ai-capicon {
+  color: var(--we-accent);
+  font-size: 13px;
+  display: inline-flex;
+}
+
+.we-ai-capactions {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.we-ai-action {
+  text-align: left;
+  font-size: 12.5px;
+  line-height: 1.4;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--we-text);
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.we-ai-action:hover:not(:disabled) {
+  background: var(--we-hover);
+  color: var(--we-accent);
+}
+
+.we-ai-action:disabled {
+  color: var(--we-muted);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* 示例提示 */
+.we-ai-examples {
+  border-top: 1px dashed var(--we-border);
+  padding-top: 10px;
+  flex-shrink: 0;
+}
+
+.we-ai-examples-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--we-muted);
+  margin-bottom: 4px;
+}
+
+.we-ai-example {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font-size: 12.5px;
+  line-height: 1.5;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--we-text);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.we-ai-example:hover {
+  background: var(--we-hover);
+}
+
+/* 起步输入框 */
+.we-ai-input-wrap {
+  margin-top: auto;
+  border: 1px solid var(--we-border);
+  border-radius: 12px;
+  padding: 8px 10px 6px;
+  background: var(--we-bg);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  flex-shrink: 0;
+}
+
+.we-ai-input-wrap:focus-within {
+  border-color: var(--we-accent);
+  box-shadow: 0 0 0 2px var(--we-accent-soft);
+}
+
+.we-ai-input.ant-input {
+  padding: 2px 4px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--we-text);
+  background: transparent;
+  resize: none;
+}
+
+.we-ai-input-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.we-ai-input-tip {
+  font-size: 11px;
+  color: var(--we-muted);
+}
+
+.we-ai-error {
+  font-size: 12px;
+  color: #ff4d4f;
+}
+
+/* 编辑器区划词浮动入口 */
+.we-selection-fab {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--we-accent);
+  color: #fff;
+  font-size: 12.5px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(22, 119, 255, 0.35);
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+
+.we-selection-fab:hover {
+  background: var(--we-accent-hover);
+  transform: translateX(-50%) translateY(-1px);
 }
 
 /* ====== 深色主题：编辑器外壳（Ribbon / 标尺 / 面板 / 弹层 / 状态栏）======

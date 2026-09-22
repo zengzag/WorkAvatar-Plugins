@@ -1,11 +1,12 @@
 // word-editor 主页面：顶栏文档操作 + wordcanvas 编辑器 + AI 对话抽屉 + 版本历史
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { App, Button, Dropdown, Input, Modal, Popconfirm, Select, Tooltip } from 'antd'
+import { App, Button, Dropdown, Input, Modal, Popconfirm, Select, Tooltip, Badge } from 'antd'
 import {
   PlusOutlined, ImportOutlined, ExportOutlined, SettingOutlined,
   EditOutlined, SaveOutlined, RocketOutlined, HistoryOutlined,
   FileWordOutlined, FilePdfOutlined, DeleteOutlined, DownloadOutlined,
+  HighlightOutlined,
 } from '@ant-design/icons'
 import { useWordEditorStore, registerEditorBridge, markEditorSynced, type EditorBridge } from './word-editor.store'
 import { WordCanvasHost } from './WordCanvasHost'
@@ -22,6 +23,7 @@ export function WordEditorPage() {
   const saving = useWordEditorStore((s) => s.saving)
   const aiPanelOpen = useWordEditorStore((s) => s.aiPanelOpen)
   const settingsOpen = useWordEditorStore((s) => s.settingsOpen)
+  const selectionText = useWordEditorStore((s) => s.lastSelection?.text ?? '')
   const { message } = App.useApp()
 
   const bridgeRef = useRef<EditorBridge | null>(null)
@@ -90,9 +92,10 @@ export function WordEditorPage() {
       remoteRef.current(remote.data)
       // 外部写入（快照恢复 / AI 编辑）后同步变更签名，避免被误判为未保存改动
       markEditorSynced()
-      const cur = useWordEditorStore.getState().doc
-      if (cur && cur.id === remote.id) {
-        useWordEditorStore.setState({ doc: { ...cur, data: remote.data }, dirty: false })
+      const cur = useWordEditorStore.getState()
+      if (cur.doc && cur.doc.id === remote.id) {
+        // 内容已被外部整体替换，旧选区位置失效，一并清空
+        useWordEditorStore.setState({ doc: { ...cur.doc, data: remote.data }, dirty: false, lastSelection: null })
       }
     })
     const unsub2 = we.onDocListChanged(() => void useWordEditorStore.getState().loadDocs())
@@ -243,9 +246,11 @@ export function WordEditorPage() {
         <Button size="small" icon={<HistoryOutlined />} disabled={!doc} onClick={() => setHistoryOpen(true)}>
           {hostT('page.history')}
         </Button>
-        <Button size="small" icon={<RocketOutlined />} onClick={() => useWordEditorStore.getState().toggleAiPanel()}>
-          {hostT('page.ai')}
-        </Button>
+        <Badge dot={!!selectionText} offset={[-4, 4]}>
+          <Button size="small" icon={<RocketOutlined />} onClick={() => useWordEditorStore.getState().toggleAiPanel()}>
+            {hostT('page.ai')}
+          </Button>
+        </Badge>
         <Dropdown
           menu={{
             items: [
@@ -281,6 +286,18 @@ export function WordEditorPage() {
                 <Button icon={<ImportOutlined />} loading={importing} onClick={() => void handleImport()}>{hostT('page.import')}</Button>
               </div>
             </div>
+          )}
+
+          {/* 划词 AI：选中文字且面板关闭时，编辑器底部浮出快捷入口（面板内则显示选中横幅） */}
+          {doc && !aiPanelOpen && selectionText && (
+            <button
+              type="button"
+              className="we-selection-fab"
+              onClick={() => useWordEditorStore.getState().toggleAiPanel(true)}
+            >
+              <HighlightOutlined />
+              {hostT('ai.fab', { count: selectionText.length })}
+            </button>
           )}
         </div>
 

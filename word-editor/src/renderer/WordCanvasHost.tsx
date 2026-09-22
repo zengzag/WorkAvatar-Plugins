@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Progress, Result, Spin } from 'antd'
 import {
-  loadWordCanvas, releaseWorkers,
+  loadWordCanvas, loadQueryModule, releaseWorkers,
   type WordCanvasInstance, type WordCanvasEditorHandle, type WordCanvasModule,
 } from './wordcanvas-loader'
 import { installWordCanvasLocalizer } from './wordcanvas-i18n'
@@ -15,7 +15,7 @@ import {
 } from './wordcanvas-tweaks'
 import { BLANK_DOCUMENT_JSON } from '../shared/blank-document'
 import { hostT, useAppearance, we } from './store'
-import type { EditorBridge } from './word-editor.store'
+import { useWordEditorStore, type EditorBridge, type SelectionInfo } from './word-editor.store'
 
 /** 系统字体列表（进程内缓存；编辑器构造前注入全局供 vendor 补丁消费） */
 let systemFontsPromise: Promise<SystemFontEntry[]> | null = null
@@ -121,6 +121,26 @@ export function WordCanvasHost({ initialData, onReady, onRemoteData, onToolbarEx
     return new Uint8Array(await blob.arrayBuffer())
   }, [])
 
+  // 读取当前选区：getSelection 在编辑器未聚焦时返回 null，故调用方在 mouseup/keyup
+  // 当下读取并缓存；选区文本由 query 模块的 rangeText 从模型计算（canvas 渲染无 DOM 选区）
+  const getSelectionInfo = useCallback(async (): Promise<SelectionInfo | null> => {
+    const handle = editorRef.current
+    if (!handle) return null
+    const sel = handle.getSelection()
+    if (!sel) return null
+    const doc = handle.getDocument()
+    try {
+      const mod = await loadQueryModule()
+      const ranged = sel.anchor.blockId !== sel.focus.blockId || sel.anchor.offset !== sel.focus.offset
+      const text = ranged ? mod.rangeText(doc, sel) : ''
+      const anchorBlock = mod.getParagraphs(doc).find((p) => p.id === sel.anchor.blockId)
+      const blockPreview = anchorBlock ? mod.textOf(anchorBlock).slice(0, 80) : ''
+      return { text, anchor: sel.anchor, focus: sel.focus, blockPreview }
+    } catch {
+      return null
+    }
+  }, [])
+
   // 远程数据应用（切换文档、快照恢复等）
   useEffect(() => {
     onRemoteRef.current((next) => setDocument(next))
@@ -186,6 +206,7 @@ export function WordCanvasHost({ initialData, onReady, onRemoteData, onToolbarEx
           getData, getSignature, setDocument, openDocx,
           exportDocx: () => exportBytes('docx'),
           exportPdf: () => exportBytes('pdf'),
+          getSelectionInfo,
         })
       } catch (e) {
         if (!disposed) setError(e instanceof Error ? e.message : String(e))
@@ -246,6 +267,31 @@ export function WordCanvasHost({ initialData, onReady, onRemoteData, onToolbarEx
       document.documentElement.classList.remove(PAGE_HIDDEN_CLASS)
     }
   }, [])
+
+  // 划词 AI：wordcanvas 是 canvas 渲染（无 DOM selectionchange），在鼠标选择 / 键盘
+  // Shift 选择结束后防抖读取一次选区，缓存进 store 供 AI 面板「选中即改」使用。
+  // 焦点离开画布（如点击侧栏）时 getSelection 返回 null，监听器不覆盖缓存，保留最后选区。
+  useEffect(() => {
+    if (!ready) return
+    const el = containerRef.current
+    if (!el) return
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const onSelect = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        void getSelectionInfo().then((info) => {
+          if (info) useWordEditorStore.getState().setLastSelection(info)
+        })
+      }, 120)
+    }
+    el.addEventListener('mouseup', onSelect)
+    el.addEventListener('keyup', onSelect)
+    return () => {
+      el.removeEventListener('mouseup', onSelect)
+      el.removeEventListener('keyup', onSelect)
+      if (timer) clearTimeout(timer)
+    }
+  }, [ready, getSelectionInfo])
 
   // 插件卸载时释放 worker blob
   useEffect(() => () => releaseWorkers(), [])

@@ -3,8 +3,28 @@
 import { create } from 'zustand'
 import { we, hostT, type DocRecord, type SnapshotMeta } from './store'
 import type { GenericChatViewMessage, GenericChatViewSegment } from '@workavatar/plugin-sdk/renderer'
+import type { DocPosition } from './wordcanvas-loader'
 
 export type ChatMessage = GenericChatViewMessage
+
+/** 编辑器当前选区快照（mouseup/keyup 后刷新；焦点离开编辑器时保留最后一次） */
+export interface SelectionInfo {
+  /** 选中的正文；收拢光标时为空串 */
+  text: string
+  anchor: DocPosition
+  focus: DocPosition
+  /** 锚点所在段落的文本预览（供 AI 定位上下文） */
+  blockPreview: string
+}
+
+/** 随对话发送给主进程的机器可读作用域（拼入本轮系统提示词） */
+export interface ScopeHint {
+  kind: 'selection' | 'caret'
+  text?: string
+  anchor: DocPosition
+  focus?: DocPosition
+  blockPreview?: string
+}
 
 /** 编辑器桥：由 WordCanvasHost 挂载后注册，store 经此读写文档 */
 export interface EditorBridge {
@@ -19,15 +39,8 @@ export interface EditorBridge {
   /** 导出为 docx / pdf 字节 */
   exportDocx: () => Promise<Uint8Array>
   exportPdf: () => Promise<Uint8Array>
-}
-
-export interface EditorBridgeHandle {
-  getData: () => string
-  getSignature: () => string
-  setDocument: (data: string) => void
-  openDocx: (bytes: Uint8Array) => Promise<void>
-  exportDocx: () => Promise<Uint8Array>
-  exportPdf: () => Promise<Uint8Array>
+  /** 当前选区/光标信息（含选中文本）；编辑器未聚焦或未就绪时 null */
+  getSelectionInfo: () => Promise<SelectionInfo | null>
 }
 
 interface WordEditorState {
@@ -49,6 +62,8 @@ interface WordEditorState {
   workspacePath: string | null
   aiPanelOpen: boolean
   settingsOpen: boolean
+  /** 编辑器最后一次选区/光标（划词 AI 用，文档切换/被 AI 改动后清空） */
+  lastSelection: SelectionInfo | null
 
   loadDocs: () => Promise<void>
   /** 直接应用一条文档记录（初始化 / 服务端返回时用，不触发编辑器重建） */
@@ -76,7 +91,7 @@ interface WordEditorState {
   setSelectedModel: (id: string | null) => void
   saveSettings: (patch: { defaultProviderId?: string; defaultModelId?: string }) => Promise<void>
 
-  sendMessage: (text: string, images?: string[]) => Promise<void>
+  sendMessage: (text: string, images?: string[], scopeHint?: ScopeHint) => Promise<void>
   cancelChat: () => void
   newChat: () => void
   loadChatHistory: (conversationId: string) => Promise<void>
@@ -85,6 +100,10 @@ interface WordEditorState {
   openChatDir: (conversationId: string) => Promise<void>
   deleteMessage: (msgId: string) => void
   toggleSegment: (msgId: string, segId: string) => void
+
+  setLastSelection: (sel: SelectionInfo | null) => void
+  /** 仅清掉选中文本（收起横幅），保留光标位置供续写使用 */
+  clearSelectionText: () => void
 
   toggleAiPanel: (open?: boolean) => void
   setSettingsOpen: (open: boolean) => void
@@ -138,19 +157,20 @@ export const useWordEditorStore = create<WordEditorState>((set, get) => ({
   workspacePath: null,
   aiPanelOpen: false,
   settingsOpen: false,
+  lastSelection: null,
 
   loadDocs: async () => {
     set({ docs: await we.listDocs() })
   },
 
   applyDoc: (record) => {
-    set({ doc: record, dirty: false, snapshots: [] })
+    set({ doc: record, dirty: false, snapshots: [], lastSelection: null })
   },
 
   createDoc: async (title) => {
     const res = await we.createDoc(title)
     if ('doc' in res && res.doc) {
-      set({ doc: res.doc, dirty: false, snapshots: [] })
+      set({ doc: res.doc, dirty: false, snapshots: [], lastSelection: null })
       await get().loadDocs()
     }
   },
@@ -160,7 +180,7 @@ export const useWordEditorStore = create<WordEditorState>((set, get) => ({
     if (get().dirty) await get().flushSave()
     const res = await we.openDoc(id)
     if ('doc' in res && res.doc) {
-      set({ doc: res.doc, dirty: false, snapshots: [] })
+      set({ doc: res.doc, dirty: false, snapshots: [], lastSelection: null })
     } else if ('error' in res) {
       throw new Error(hostT(res.error))
     }
@@ -168,7 +188,7 @@ export const useWordEditorStore = create<WordEditorState>((set, get) => ({
 
   deleteDoc: async (id) => {
     await we.deleteDoc(id)
-    if (get().doc?.id === id) set({ doc: null, dirty: false })
+    if (get().doc?.id === id) set({ doc: null, dirty: false, lastSelection: null })
     await get().loadDocs()
   },
 
@@ -217,7 +237,7 @@ export const useWordEditorStore = create<WordEditorState>((set, get) => ({
     const created = await we.createDoc(res.name || hostT('defaults.importName'), data)
     if ('doc' in created && created.doc) {
       await we.renameDoc(created.doc.id, res.name || hostT('defaults.importName'))
-      set({ doc: { ...created.doc, title: res.name || hostT('defaults.importName'), sourcePath: res.sourcePath ?? null }, dirty: false, snapshots: [] })
+      set({ doc: { ...created.doc, title: res.name || hostT('defaults.importName'), sourcePath: res.sourcePath ?? null }, dirty: false, snapshots: [], lastSelection: null })
       await get().loadDocs()
     }
     lastSignature = editorBridge.getSignature()
@@ -341,7 +361,7 @@ export const useWordEditorStore = create<WordEditorState>((set, get) => ({
     }))
   },
 
-  sendMessage: async (text, images) => {
+  sendMessage: async (text, images, scopeHint) => {
     if (get().isStreaming) return
     const { selectedProviderId, selectedModelId, conversationId, messages } = get()
     if (!selectedProviderId) {
@@ -367,6 +387,7 @@ export const useWordEditorStore = create<WordEditorState>((set, get) => ({
       messages: [...history, { id: userMsg.id, role: 'user', content: text, images }],
       assistantId: assistantMsg.id,
       conversationId: conversationId ?? undefined,
+      scopeHint,
     })
 
     if ('error' in res) {
@@ -388,6 +409,13 @@ export const useWordEditorStore = create<WordEditorState>((set, get) => ({
   cancelChat: () => {
     void we.cancelChat(get().conversationId ?? undefined)
     set({ isStreaming: false })
+  },
+
+  setLastSelection: (sel) => set({ lastSelection: sel }),
+
+  clearSelectionText: () => {
+    const cur = get().lastSelection
+    if (cur?.text) set({ lastSelection: { ...cur, text: '' } })
   },
 
   toggleAiPanel: (open) => set((s) => ({ aiPanelOpen: open ?? !s.aiPanelOpen })),

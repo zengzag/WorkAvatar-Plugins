@@ -1,18 +1,194 @@
-// 右侧 AI 对话抽屉：复用宿主 GenericChatView，配置历史对话与常用指令
+// 右侧 AI 助手面板：
+// - 无对话时为欢迎页（分组能力卡片 + 示例 + 起步输入框），对标 WPS/飞书的场景化入口
+// - 选中编辑器文字后出现「选中横幅」与划词指令（润色/缩写/扩写/翻译/解释…），即「选中即改」
+// - 对话进行中保留文档级快捷 chips；消息流复用宿主 GenericChatView
 
-import { useEffect } from 'react'
-import { Select, Button, Tooltip } from 'antd'
-import { PlusOutlined, FolderOpenOutlined, DeleteOutlined } from '@ant-design/icons'
-import { useWordEditorStore } from './word-editor.store'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Select, Button, Tooltip, Input } from 'antd'
+import {
+  PlusOutlined, FolderOpenOutlined, DeleteOutlined, SendOutlined, CloseOutlined,
+  EditOutlined, HighlightOutlined, CheckCircleOutlined, ReadOutlined,
+  BulbOutlined, RobotOutlined,
+} from '@ant-design/icons'
+import { useWordEditorStore, type ScopeHint } from './word-editor.store'
 import { we, getHostCapabilities, hostT } from './store'
+import {
+  AI_COMMAND_GROUPS, AI_QUICK_COMMANDS, AI_SELECTION_COMMANDS, AI_EXAMPLES,
+  MAX_QUOTED_SELECTION, type AiCommand,
+} from './ai-commands'
 
-const QUICK_COMMANDS: Array<{ key: string; text: string }> = [
-  { key: 'rewrite', text: '请通读全文，把语言表达不够流畅的地方润色一遍，保持结构不变。' },
-  { key: 'formal', text: '把全文调整为正式书面语气，保持内容不变。' },
-  { key: 'format', text: '优化文档排版：修正标题层级、对齐和列表，使结构更清晰。' },
-  { key: 'summary', text: '为这篇文档生成一段摘要，加到文档开头。' },
-  { key: 'proofread', text: '检查全文错别字和标点，直接修正。' },
-]
+const GROUP_ICONS: Record<string, ReactNode> = {
+  write: <EditOutlined />,
+  polish: <HighlightOutlined />,
+  review: <CheckCircleOutlined />,
+  read: <ReadOutlined />,
+}
+
+/** 选中文字横幅：展示引用预览 + 划词指令 */
+function SelectionBanner() {
+  const lastSelection = useWordEditorStore((s) => s.lastSelection)
+  const isStreaming = useWordEditorStore((s) => s.isStreaming)
+  const clearSelectionText = useWordEditorStore((s) => s.clearSelectionText)
+  const { sendMessage } = useWordEditorStore.getState()
+
+  if (!lastSelection?.text) return null
+  const sel = lastSelection
+
+  const runSelectionCommand = (cmd: AiCommand) => {
+    if (useWordEditorStore.getState().isStreaming) return
+    const clipped = sel.text.length > MAX_QUOTED_SELECTION
+      ? `${sel.text.slice(0, MAX_QUOTED_SELECTION)}\n（选中内容较长，已截断）`
+      : sel.text
+    const content = `${cmd.prompt}\n\n【我选中的文字】\n"""\n${clipped}\n"""`
+    const scopeHint: ScopeHint = {
+      kind: 'selection',
+      text: sel.text.slice(0, 8000),
+      anchor: sel.anchor,
+      focus: sel.focus,
+      blockPreview: sel.blockPreview,
+    }
+    void sendMessage(content, undefined, scopeHint)
+  }
+
+  return (
+    <div className="we-ai-banner">
+      <div className="we-ai-banner-head">
+        <HighlightOutlined className="we-ai-banner-icon" />
+        <span className="we-ai-banner-title">{hostT('ai.selected', { count: sel.text.length })}</span>
+        <Button
+          size="small"
+          type="text"
+          icon={<CloseOutlined />}
+          onClick={clearSelectionText}
+        />
+      </div>
+      <div className="we-ai-banner-quote">{sel.text}</div>
+      <div className="we-ai-banner-actions">
+        {AI_SELECTION_COMMANDS.map((cmd) => (
+          <Button
+            key={cmd.key}
+            size="small"
+            disabled={isStreaming}
+            onClick={() => runSelectionCommand(cmd)}
+          >
+            {hostT(`ai.sel.${cmd.key}`)}
+          </Button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** 欢迎页：分组能力卡片 + 示例 + 起步输入框 */
+function WelcomeView({ header }: { header: ReactNode }) {
+  const isStreaming = useWordEditorStore((s) => s.isStreaming)
+  const chatError = useWordEditorStore((s) => s.chatError)
+  const hasCaret = useWordEditorStore((s) => !!s.lastSelection)
+  const { sendMessage } = useWordEditorStore.getState()
+  const [draft, setDraft] = useState('')
+
+  const runCommand = (cmd: AiCommand) => {
+    if (useWordEditorStore.getState().isStreaming || !useWordEditorStore.getState().doc) return
+    const sel = useWordEditorStore.getState().lastSelection
+    let scopeHint: ScopeHint | undefined
+    if (cmd.scope === 'caret') {
+      if (!sel) return
+      scopeHint = { kind: 'caret', anchor: sel.anchor, blockPreview: sel.blockPreview }
+    }
+    void sendMessage(cmd.prompt, undefined, scopeHint)
+  }
+
+  const sendDraft = () => {
+    const state = useWordEditorStore.getState()
+    const text = draft.trim()
+    if (!text || state.isStreaming || !state.doc) return
+    setDraft('')
+    void sendMessage(text)
+  }
+
+  return (
+    <>
+      <div className="we-ai-topbar">{header}</div>
+      <div className="we-ai-welcome">
+        <div className="we-ai-hero">
+          <div className="we-ai-hero-badge"><RobotOutlined /></div>
+          <div className="we-ai-hero-title">{hostT('ai.heroTitle')}</div>
+          <div className="we-ai-hero-sub">{hostT('ai.heroSub')}</div>
+        </div>
+
+        <SelectionBanner />
+
+        <div className="we-ai-capgrid">
+          {AI_COMMAND_GROUPS.map((group) => (
+            <div key={group.key} className="we-ai-capcard">
+              <div className="we-ai-caphead">
+                <span className="we-ai-capicon">{GROUP_ICONS[group.key]}</span>
+                {hostT(`ai.group.${group.key}`)}
+              </div>
+              <div className="we-ai-capactions">
+                {group.commands.map((cmd) => {
+                  const disabled = isStreaming || (cmd.scope === 'caret' && !hasCaret)
+                  return (
+                    <button
+                      key={cmd.key}
+                      type="button"
+                      className="we-ai-action"
+                      disabled={disabled}
+                      title={cmd.scope === 'caret' && !hasCaret ? hostT('ai.caretHint') : undefined}
+                      onClick={() => runCommand(cmd)}
+                    >
+                      {hostT(`ai.cmd.${cmd.key}`)}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="we-ai-examples">
+          <div className="we-ai-examples-title"><BulbOutlined />{hostT('ai.examplesTitle')}</div>
+          {AI_EXAMPLES.map((key) => (
+            <button key={key} type="button" className="we-ai-example" onClick={() => setDraft(hostT(`ai.example.${key}`))}>
+              {hostT(`ai.example.${key}`)}
+            </button>
+          ))}
+        </div>
+
+        <div className="we-ai-input-wrap">
+          <Input.TextArea
+            className="we-ai-input"
+            value={draft}
+            variant="borderless"
+            autoSize={{ minRows: 1, maxRows: 4 }}
+            placeholder={hostT('page.docPlaceholder')}
+            onChange={(e) => setDraft(e.target.value)}
+            onPressEnter={(e) => {
+              if (!e.shiftKey) {
+                e.preventDefault()
+                sendDraft()
+              }
+            }}
+          />
+          <div className="we-ai-input-foot">
+            <span className="we-ai-input-tip">{hostT('ai.inputTip')}</span>
+            <Button
+              type="primary"
+              size="small"
+              icon={<SendOutlined />}
+              loading={isStreaming}
+              disabled={!draft.trim()}
+              onClick={sendDraft}
+            >
+              {hostT('ai.send')}
+            </Button>
+          </div>
+        </div>
+        {chatError && <div className="we-ai-error">{hostT(chatError)}</div>}
+      </div>
+    </>
+  )
+}
 
 export function AiChatPanel() {
   const messages = useWordEditorStore((s) => s.messages)
@@ -84,21 +260,34 @@ export function AiChatPanel() {
     return <div style={{ padding: 24, textAlign: 'center', color: 'var(--we-muted)' }}>{hostT('page.unsupported')}</div>
   }
 
+  const hasMessages = messages.length > 0
+
+  if (!hasMessages) {
+    return (
+      <div className="we-ai-root">
+        <WelcomeView header={header} />
+      </div>
+    )
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ padding: '8px 10px 0', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-        {QUICK_COMMANDS.map((qc) => (
+    <div className="we-ai-root">
+      <div className="we-ai-topbar">{header}</div>
+      <SelectionBanner />
+      <div className="we-ai-quickbar">
+        {AI_QUICK_COMMANDS.map((cmd) => (
           <Button
-            key={qc.key}
+            key={cmd.key}
+            className="we-ai-chip"
             size="small"
-            onClick={() => handleSend(qc.text)}
-            disabled={useWordEditorStore.getState().isStreaming}
+            disabled={isStreaming}
+            onClick={() => void sendMessage(cmd.prompt)}
           >
-            {hostT(`page.aiQuick.${qc.key}`)}
+            {hostT(`ai.cmd.${cmd.key}`)}
           </Button>
         ))}
       </div>
-      <div style={{ flex: 1, minHeight: 0 }}>
+      <div className="we-ai-chat">
         <GenericChatView
           messages={messages}
           isStreaming={isStreaming}
@@ -106,7 +295,6 @@ export function AiChatPanel() {
           conversationId={conversationId}
           providers={providers}
           placeholder={hostT('page.docPlaceholder')}
-          header={header}
           onSend={handleSend}
           onStop={cancelChat}
           onToggleSegment={toggleSegment}

@@ -9,7 +9,7 @@ import fs from 'fs'
 import type { PluginContext, PluginMainModule, PluginToolDefinition } from '@workavatar/plugin-sdk'
 import { BLANK_DOCUMENT_JSON } from '../shared/blank-document'
 import { docStore, filesDir, createTaskWorkspace, isWithinTaskRoot } from './doc-store'
-import { DOC_SYSTEM_PROMPT } from './system-prompt'
+import { DOC_SYSTEM_PROMPT, buildScopeHint, type ScopeHintPayload } from './system-prompt'
 import { listSystemFonts } from './system-fonts'
 import { docOpBridge } from './doc-op-bridge'
 import { beginAiEditTurn, createWordEditorAgentTools, endAiEditTurn } from './doc-tools'
@@ -201,7 +201,7 @@ function registerIpc(ctx: PluginContext): void {
   ctx.ipc.handle('chat-send', async (payload: any, signal?: AbortSignal) => {
     const execute = ctx.services.execute
     if (!execute) return { error: t('errors.executeUnavailable') }
-    const { providerId, modelId, messages, conversationId } = payload ?? {}
+    const { providerId, modelId, messages, conversationId, scopeHint } = payload ?? {}
     if (!messages || messages.length === 0) return { error: t('errors.missingMessages') }
 
     let resolvedProviderId = providerId
@@ -244,7 +244,7 @@ function registerIpc(ctx: PluginContext): void {
     } else {
       workspacePath = docStore.getChatWorkspacePath(conversationId)
     }
-    const system = buildChatSystem(DOC_SYSTEM_PROMPT, workspacePath)
+    const system = buildChatSystem(DOC_SYSTEM_PROMPT, workspacePath, normalizeScopeHint(scopeHint))
 
     let lastConvId: string | null = isNewConv ? null : convId
 
@@ -358,7 +358,7 @@ function registerIpc(ctx: PluginContext): void {
   })
 }
 
-function buildChatSystem(base: string, workspacePath: string | null): string {
+function buildChatSystem(base: string, workspacePath: string | null, scope?: ScopeHintPayload | null): string {
   const doc = docStore.getCurrentDoc()
   const docInfo = doc
     ? `\n\n当前打开的文档：《${doc.title}》。`
@@ -366,7 +366,26 @@ function buildChatSystem(base: string, workspacePath: string | null): string {
   const ws = workspacePath
     ? `\n\n当前任务工作区目录：${workspacePath}\n该目录为本次对话的专属任务文件夹，可用 file_read / file_write / file_edit / shell_exec 读取、写入其中的文件。`
     : ''
-  return base + docInfo + ws
+  return base + docInfo + ws + buildScopeHint(scope)
+}
+
+/** 校验渲染端上报的作用域（结构不合法时忽略，避免污染系统提示词） */
+function normalizeScopeHint(raw: unknown): ScopeHintPayload | null {
+  if (!raw || typeof raw !== 'object') return null
+  const s = raw as Record<string, unknown>
+  if (s.kind !== 'selection' && s.kind !== 'caret') return null
+  const anchor = s.anchor as { blockId?: unknown; offset?: unknown } | undefined
+  if (!anchor || typeof anchor.blockId !== 'string' || typeof anchor.offset !== 'number') return null
+  const scope: ScopeHintPayload = { kind: s.kind, anchor: { blockId: anchor.blockId, offset: anchor.offset } }
+  if (typeof s.text === 'string' && s.text) {
+    scope.text = s.text.slice(0, 8000)
+  }
+  if (typeof s.blockPreview === 'string') scope.blockPreview = s.blockPreview.slice(0, 100)
+  const focus = s.focus as { blockId?: unknown; offset?: unknown } | undefined
+  if (focus && typeof focus.blockId === 'string' && typeof focus.offset === 'number') {
+    scope.focus = { blockId: focus.blockId, offset: focus.offset }
+  }
+  return scope
 }
 
 export const migrations = []

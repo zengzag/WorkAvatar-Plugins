@@ -25,6 +25,23 @@ export interface WordCanvasEditorHandle {
   openDocx(file: File | ArrayBuffer): Promise<void>
   exportDocx(): Promise<Blob>
   exportPdf(): Promise<Blob>
+  /** 当前选区/光标；编辑器未聚焦时返回 null */
+  getSelection(): DocSelection | null
+  /** 在光标处插入纯文本（有选区时替换选区） */
+  insertText(text: string): void
+}
+
+/** 文档内位置（offset 为块拼接 run 文本的 UTF-16 偏移） */
+export interface DocPosition {
+  blockId: string
+  offset: number
+}
+
+/** 选区：anchor === focus 为收拢的光标 */
+export interface DocSelection {
+  anchor: DocPosition
+  focus: DocPosition
+  goalX?: number
 }
 
 export interface WordCanvasModule {
@@ -104,6 +121,8 @@ export interface DocQueryModule {
   DocumentEditor: new (doc: unknown) => DocEditor
   getParagraphs(doc: unknown): DocParagraph[]
   textOf(block: unknown): string
+  /** 选区覆盖的文本（单块切片；跨顶层块选区以换行拼接） */
+  rangeText(doc: unknown, selection: DocSelection): string
 }
 
 let modulePromise: Promise<WordCanvasModule> | null = null

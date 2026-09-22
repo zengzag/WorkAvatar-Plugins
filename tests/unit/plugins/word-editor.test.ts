@@ -459,4 +459,51 @@ describe('AI 文档工具', () => {
     expect(req.tools.length).toBe(Object.values(DOC_OPS).length)
     expect(req.system).toContain('doc_outline')
   })
+
+  it('chat-send 透传选中文字作用域到系统提示词（只改选中范围）', async () => {
+    const { mock } = await setupWithDoc()
+    await handler(mock, 'chat-send')({
+      providerId: 'p1',
+      messages: [{ id: 'u1', role: 'user', content: '润色这段' }],
+      assistantId: 'a1',
+      scopeHint: {
+        kind: 'selection',
+        text: '这是一段被选中的话',
+        anchor: { blockId: 'p1', offset: 2 },
+        focus: { blockId: 'p1', offset: 9 },
+        blockPreview: '这是一段被选中的话',
+      },
+    })
+    const req = executeMock(mock).mock.calls[0][0] as { system: string }
+    expect(req.system).toContain('用户选中的文字')
+    expect(req.system).toContain('p1')
+    expect(req.system).toContain('这是一段被选中的话')
+    expect(req.system).toContain('只改动选中范围')
+  })
+
+  it('chat-send 透传光标作用域到系统提示词（续写落点）', async () => {
+    const { mock } = await setupWithDoc()
+    await handler(mock, 'chat-send')({
+      providerId: 'p1',
+      messages: [{ id: 'u1', role: 'user', content: '继续写' }],
+      assistantId: 'a1',
+      scopeHint: { kind: 'caret', anchor: { blockId: 'p1', offset: 4 } },
+    })
+    const req = executeMock(mock).mock.calls[0][0] as { system: string }
+    expect(req.system).toContain('光标位置')
+    expect(req.system).toContain('p1')
+    expect(req.system).not.toContain('用户选中的文字')
+  })
+
+  it('chat-send 忽略结构不合法的 scopeHint', async () => {
+    const { mock } = await setupWithDoc()
+    await handler(mock, 'chat-send')({
+      providerId: 'p1',
+      messages: [{ id: 'u1', role: 'user', content: 'hi' }],
+      assistantId: 'a1',
+      scopeHint: { kind: 'selection', anchor: { blockId: 123 } },
+    })
+    const req = executeMock(mock).mock.calls[0][0] as { system: string }
+    expect(req.system).not.toContain('本轮作用范围')
+  })
 })

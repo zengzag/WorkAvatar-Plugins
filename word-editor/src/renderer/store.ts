@@ -107,6 +107,14 @@ export const we = {
     messages: Array<{ id?: string; role: string; content: string; images?: string[] }>
     conversationId?: string
     assistantId?: string
+    /** 本轮指令的作用域（选中文字 / 光标位置），主进程拼入系统提示词 */
+    scopeHint?: {
+      kind: 'selection' | 'caret'
+      text?: string
+      anchor: { blockId: string; offset: number }
+      focus?: { blockId: string; offset: number }
+      blockPreview?: string
+    }
   }) => invoke<{ conversationId: string; workspacePath?: string | null } | { error: string }>('chat-send', payload),
   cancelChat: (conversationId?: string) => invoke<{ ok: boolean }>('chat-cancel', { conversationId }),
   chatHistory: (conversationId: string) => invoke<any[]>('chat-history', { conversationId }),
