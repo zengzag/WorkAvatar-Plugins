@@ -115,7 +115,11 @@ const TreeNodeTitle = memo(function TreeNodeTitle({
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
         onPressEnter={(e) => { e.stopPropagation(); onCommitEdit() }}
-        onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancelEdit() } }}
+        onKeyDown={(e) => {
+          // 阻止按键冒泡到 rc-tree 的内置键盘导航，否则左右键会切换树节点而非移动光标
+          if (e.key === 'Escape') onCancelEdit()
+          e.stopPropagation()
+        }}
         onBlur={onCommitEdit}
         style={{ width: '100%', height: 22, padding: '0 6px', fontSize: 13 }}
       />
