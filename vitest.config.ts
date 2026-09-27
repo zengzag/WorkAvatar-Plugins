@@ -13,6 +13,7 @@ export default defineConfig({
     },
   },
   test: {
+    root: __dirname,
     environment: 'node',
     include: ['tests/**/*.test.{ts,tsx}'],
     globals: true,
