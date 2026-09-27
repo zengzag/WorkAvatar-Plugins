@@ -17,9 +17,9 @@
     "resolveJsonModule": true,
     "types": ["node"],
     "paths": {
-      "@workavatar/plugin-sdk": ["../plugin-sdk/src"],
-      "@workavatar/plugin-sdk/*": ["../plugin-sdk/src/*"]
+      "@workavatar/plugin-sdk": ["../../plugin-sdk/src"],
+      "@workavatar/plugin-sdk/*": ["../../plugin-sdk/src/*"]
     }
   },
-  "include": ["ai-assistants", "automation", "calendar", "data-model", "notes", "voice", "word-editor", "workflow", "examples", "tests"]
+  "include": ["src"]
 }
