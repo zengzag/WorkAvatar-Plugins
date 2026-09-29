@@ -1,7 +1,7 @@
 {
   "id": "word-editor",
   "name": "Word Editor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "engine": ">=0.2.0",
   "description": "Word 文档编辑器：docx 导入、富文本编辑、AI 对话改稿、排版指令、版本快照，导出 docx/PDF",
   "author": "WorkAvatar",

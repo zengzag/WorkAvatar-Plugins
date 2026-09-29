@@ -1,7 +1,7 @@
 {
   "id": "workflow",
   "name": "模板任务",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "engine": ">=0.2.0",
   "description": "模板任务（Workflow）：可视化搭建复杂任务流程（撰写/评审/条件/循环），可编排数字员工与模板内联临时角色，多轮迭代直至通过，运行过程在任务页可见。",
   "author": "WorkAvatar",
