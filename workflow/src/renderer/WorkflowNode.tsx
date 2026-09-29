@@ -49,7 +49,7 @@ export function WorkflowNodeView({ data, selected }: NodeProps) {
         </Tag>
         {payload.round ? (
           <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-            {t('common.round', { n: payload.round })}
+            {t('template.round', { n: payload.round })}
           </Typography.Text>
         ) : null}
       </div>

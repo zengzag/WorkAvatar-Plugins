@@ -12,10 +12,11 @@
     "workflow_update_node": "修改流程节点",
     "workflow_delete_node": "删除流程节点",
     "workflow_validate_template": "校验模板流程",
+    "workflow_run_template": "运行模板任务",
     "workflow_delete_template": "删除模板"
   },
   "toolDescriptions": {
-    "workflow_list_templates": "列出已有模板任务模板（id / 名称 / 节点数）",
+    "workflow_list_templates": "列出已有模板任务模板（id / 名称 / 节点数 / 运行入参）",
     "workflow_get_template": "按 id 读取模板的完整结构（节点 / 连线 / 运行入参）",
     "workflow_create_template": "创建一个空模板并返回 templateId，随后逐个添加节点与连线",
     "workflow_update_template": "更新模板的名称 / 说明 / 运行入参（只传要改的字段）",
@@ -26,6 +27,7 @@
     "workflow_update_node": "更新节点的名称、指令、角色或循环轮次",
     "workflow_delete_node": "删除节点并同步清理其关联连线",
     "workflow_validate_template": "校验流程结构：缺角色、缺指令、分支缺失或非法、成环、多入口、员工 id 无效等问题",
+    "workflow_run_template": "按 id 直接启动一次模板运行，并可同时传入运行入参（缺省用模板默认值）",
     "workflow_delete_template": "永久删除指定模板（不可恢复，需确认）"
   },
   "page": {
@@ -48,13 +50,26 @@
     "saved": "模板已保存",
     "duplicated": "已复制模板",
     "variables": "运行入参",
-    "variablesHint": "运行时需要填写的参数，节点指令中用 {{参数名}} 引用",
+    "variablesHint": "运行时需要填写的参数。在节点指令里用 {{参数名}} 引用即可，无需为参数单独建节点。",
+    "variablesEmpty": "还没有运行入参。若运行前需要用户提供信息（如需求说明、文件路径），先在这里添加参数，再在节点指令里用 {{参数名}} 引用。",
     "variableName": "参数名",
-    "variableDesc": "说明/提示",
+    "variableDesc": "提示说明",
+    "variableDefault": "默认值",
     "variableNamePlaceholder": "如：需求说明",
-    "variableDescPlaceholder": "运行时展示给填写者的提示",
+    "variableDescPlaceholder": "运行时的提示（鼠标悬停标题图标显示）",
+    "variableDefaultPlaceholder": "留空则该参数运行时必填",
     "addVariable": "添加入参",
-    "updatedAt": "更新于"
+    "sampleVariable": "需求说明",
+    "sampleVariableDesc": "本次任务要完成的内容",
+    "sampleRole": "执行助手",
+    "sampleRolePrompt": "你是任务执行助手：按给定需求完成这一步工作，并给出清晰、可直接使用的结果。",
+    "sampleInstruction": "根据以下需求完成本步任务：",
+    "updatedAt": "更新于",
+    "none": "无",
+    "round": "第 {{n}} 轮",
+    "saveFailed": "保存失败",
+    "repeatName": "参数名重复：{{name}}",
+    "unnamedVariable": "请先填写参数名"
   },
   "canvas": {
     "nodeLibrary": "节点库",
@@ -62,7 +77,12 @@
     "selectNode": "在画布中选择一个节点以编辑属性",
     "back": "返回模板库",
     "deleteNode": "删除节点",
-    "dropHint": "从左侧节点库点击添加节点"
+    "deleteEdge": "删除连线",
+    "dropHint": "从左侧节点库点击添加节点，或在此处右键新建",
+    "undo": "撤销",
+    "redo": "重做",
+    "newNode": "新建节点",
+    "fitView": "适应视图"
   },
   "node": {
     "input": "输入",
@@ -74,7 +94,7 @@
     "human": "人工",
     "tool": "工具",
     "end": "结束",
-    "inputDesc": "声明运行入参（文本/文件）",
+    "inputDesc": "流程起点标记，可承载运行入参文本",
     "agentDesc": "驱动数字员工或临时角色执行一步任务",
     "reviewDesc": "结构化评审，输出通过/不通过结论",
     "conditionDesc": "按上游结论或表达式路由分支",
@@ -104,6 +124,7 @@
     "instruction": "任务指令",
     "instructionPlaceholder": "描述这一步要做什么，可用 {{变量名}} 或 {{节点id}} 引用上游产出",
     "instructionHint": "支持变量：{{变量名}} 引用运行入参，{{节点id}} 引用上游节点输出",
+    "inputInstructionHint": "输入节点的指令可引用运行入参（如 {{需求说明}}），其渲染文本可被下游用 {{节点id}} 引用",
     "maxRounds": "最大轮次",
     "maxRoundsHint": "达到轮次上限后不再回环，直接进入下一分支",
     "verdictHint": "评审节点结论由 LLM 以 FINAL_VERDICT 标记给出（PASS / FAIL），据此走出边分支"
@@ -124,12 +145,54 @@
     "start": "开始运行",
     "starting": "正在启动…",
     "variableRequired": "请填写参数「{{name}}」",
-    "openTask": "前往任务页查看",
-    "nodeStatus": "节点状态",
+    "variableOptional": "可留空，使用默认值",
+    "noVariables": "该模板无需运行入参，点击「开始运行」即可。",
+    "startedAt": "开始",
+    "finishedAt": "结束",
+    "duration": "耗时",
+    "currentNode": "正在执行：{{name}}",
+    "viewLatestRun": "查看该模板的运行详情",
+    "nodeProgress": "执行节点 {{done}}/{{total}}",
+    "result": "运行结果",
     "artifacts": "产出文件",
     "noArtifacts": "暂无产出文件",
     "abort": "中止运行",
-    "noHistory": "暂无运行记录"
+    "abortConfirm": "确定中止本次运行？",
+    "detail": "运行详情",
+    "delete": "删除记录",
+    "deleteConfirm": "删除该运行记录？",
+    "deleted": "运行记录已删除",
+    "deleteRunning": "运行中的任务无法删除",
+    "noHistory": "暂无运行记录",
+    "inputs": "运行入参",
+    "statNodes": "节点进度",
+    "statTokens": "Token 用量",
+    "statArtifacts": "产出文件",
+    "tokens": "Token",
+    "tokenInput": "输入",
+    "tokenOutput": "输出",
+    "tokenCached": "缓存",
+    "expandAll": "全部展开",
+    "collapseAll": "全部收起",
+    "expandText": "展开",
+    "copy": "复制",
+    "copied": "已复制",
+    "openFile": "打开文件",
+    "openFolder": "打开所在文件夹",
+    "openFailed": "打开失败",
+    "artifactError": {
+      "params_required": "参数缺失",
+      "run_not_found": "运行记录不存在",
+      "not_in_run": "该文件不属于本次运行产物",
+      "missing": "文件不存在或已被移动",
+      "unknown": "未知错误"
+    },
+    "event": {
+      "prompt": "任务指令",
+      "thinking": "思考过程",
+      "toolInput": "入参",
+      "toolOutput": "结果"
+    }
   },
   "status": {
     "pending": "等待",
@@ -143,10 +206,5 @@
     "pass": "通过",
     "fail": "不通过",
     "deferred": "待定"
-  },
-  "common": {
-    "none": "无",
-    "round": "第 {{n}} 轮",
-    "saveFailed": "保存失败"
   }
 }

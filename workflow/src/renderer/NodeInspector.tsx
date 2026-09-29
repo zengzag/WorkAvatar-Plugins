@@ -169,11 +169,18 @@ export function NodeInspector({ template, node, onChange }: Props) {
         </>
       )}
 
-      <Form.Item label={t('field.instruction')} extra={<Typography.Text type="secondary" style={{ fontSize: 11 }}>{t('field.instructionHint')}</Typography.Text>}>
+      <Form.Item
+        label={t('field.instruction')}
+        extra={
+          <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+            {node.type === 'input' ? t('field.inputInstructionHint') : t('field.instructionHint')}
+          </Typography.Text>
+        }
+      >
         <Input.TextArea
           value={data.instruction}
           placeholder={t('field.instructionPlaceholder')}
-          autoSize={{ minRows: 5, maxRows: 16 }}
+          autoSize={{ minRows: node.type === 'input' ? 3 : 5, maxRows: 16 }}
           onChange={(e) => patch({ instruction: e.target.value })}
         />
       </Form.Item>

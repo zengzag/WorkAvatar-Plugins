@@ -7,8 +7,10 @@
  * - 运行事件经 ctx.ipc.broadcast('run-event') 转发渲染端
  */
 import { randomUUID } from 'node:crypto'
+import fs from 'node:fs'
+import { shell } from 'electron'
 import type { PluginContext, PluginDatabase, PluginMigration, PluginMigrationContext } from '@workavatar/plugin-sdk'
-import type { PluginWorkflowGraphSpec, PluginWorkflowNodeSpec, PluginWorkflowRunEvent } from '@workavatar/plugin-sdk'
+import type { PluginWorkflowGraphSpec, PluginWorkflowNodeSpec, PluginWorkflowRun, PluginWorkflowRunEvent } from '@workavatar/plugin-sdk'
 import type { EphemeralRole, WorkflowGraph, WorkflowTemplate } from '../shared/types'
 import { createWorkflowTools, validateGraph } from './tools'
 
@@ -211,7 +213,52 @@ async function listEmployeeIds(): Promise<string[]> {
 export function activate(ctx: PluginContext): void {
   ctxRef = ctx
 
+  /** 启动一次运行的公共路径：结构预检 → 补默认入参 → 调内核编排（run-start IPC 与 agent 工具共用） */
+  async function startRun(
+    template: WorkflowTemplate,
+    variables: Record<string, string>,
+    conversationId?: string,
+  ): Promise<{ run?: PluginWorkflowRun; error?: string }> {
+    // 运行前结构校验：把「缺角色/分支缺失/成环」等问题在启动前反馈给用户，而不是跑出半截流程
+    const problems = validateGraph(template.graph, await listEmployeeIds())
+    if (problems.length > 0) return { error: problems.join('；') }
+    if (!ctx.services.workflow) return { error: 'workflow capability not granted' }
+    // 统一补齐默认入参：留空/未传的参数用模板声明的 defaultValue 兜底，
+    // 避免节点指令里的 {{参数名}} 插值成空串或残留原文（UI 运行与工具运行行为一致）
+    const resolved: Record<string, string> = { ...(variables || {}) }
+    for (const variable of template.variables || []) {
+      if (!String(resolved[variable.name] ?? '').trim() && variable.defaultValue) {
+        resolved[variable.name] = variable.defaultValue
+      }
+    }
+    try {
+      const run = await ctx.services.workflow.run({
+        templateId: template.id,
+        templateName: template.name,
+        graph: toGraphSpec(template.graph),
+        variables: resolved,
+        conversationId,
+      })
+      return { run }
+    } catch (err: unknown) {
+      return { error: err instanceof Error ? err.message : String(err) }
+    }
+  }
+
   // ====== 模板 CRUD ======
+  // 模板列表经 KeepAlive 缓存的页面持有，LLM 在其它页/窗口经 agent 工具改动模板后
+  // 已挂载的「模板任务」页不会重新挂载；所有写操作统一广播 templates-changed 让渲染端刷新
+  const notifyTemplatesChanged = () => ctx.ipc.broadcast('templates-changed', {})
+  const persistTemplate = (input: Partial<WorkflowTemplate> & { name?: string }): WorkflowTemplate => {
+    const template = saveTemplate(input)
+    notifyTemplatesChanged()
+    return template
+  }
+  const removeTemplate = (id: string): void => {
+    getDb().prepare('DELETE FROM workflow_templates WHERE id = ?').run(id)
+    notifyTemplatesChanged()
+  }
+
   ctx.ipc.handle('template-list', () => ({ list: listTemplates() }))
   ctx.ipc.handle('template-get', (payload: unknown) => {
     const id = String((payload as { id?: string })?.id ?? '')
@@ -219,18 +266,17 @@ export function activate(ctx: PluginContext): void {
   })
   ctx.ipc.handle('template-save', (payload: unknown) => {
     const input = (payload ?? {}) as Partial<WorkflowTemplate> & { name?: string }
-    return { template: saveTemplate(input) }
+    return { template: persistTemplate(input) }
   })
   ctx.ipc.handle('template-delete', (payload: unknown) => {
-    const id = String((payload as { id?: string })?.id ?? '')
-    getDb().prepare('DELETE FROM workflow_templates WHERE id = ?').run(id)
+    removeTemplate(String((payload as { id?: string })?.id ?? ''))
     return { ok: true }
   })
   ctx.ipc.handle('template-duplicate', (payload: unknown) => {
     const id = String((payload as { id?: string })?.id ?? '')
     const source = loadTemplate(id)
     if (!source) return { error: 'template not found' }
-    const copy = saveTemplate({
+    const copy = persistTemplate({
       name: `${source.name} (copy)`,
       description: source.description,
       variables: source.variables,
@@ -248,22 +294,7 @@ export function activate(ctx: PluginContext): void {
     }
     const template = loadTemplate(String(templateId || ''))
     if (!template) return { error: 'template.required' }
-    // 运行前结构校验：把「缺角色/分支缺失/成环」等问题在启动前反馈给用户，而不是跑出半截流程
-    const problems = validateGraph(template.graph, await listEmployeeIds())
-    if (problems.length > 0) return { error: problems.join('；') }
-    if (!ctx.services.workflow) return { error: 'workflow capability not granted' }
-    try {
-      const run = await ctx.services.workflow.run({
-        templateId: template.id,
-        templateName: template.name,
-        graph: toGraphSpec(template.graph),
-        variables: variables || {},
-        conversationId,
-      })
-      return { run }
-    } catch (err: unknown) {
-      return { error: err instanceof Error ? err.message : String(err) }
-    }
+    return startRun(template, variables || {}, conversationId)
   })
   ctx.ipc.handle('run-get', async (payload: unknown) => {
     const runId = String((payload as { runId?: string })?.runId ?? '')
@@ -283,6 +314,41 @@ export function activate(ctx: PluginContext): void {
     const runId = String((payload as { runId?: string })?.runId ?? '')
     const ok = (await ctx.services.workflow?.abortRun(runId)) ?? false
     return { ok }
+  })
+  ctx.ipc.handle('run-delete', async (payload: unknown) => {
+    const runId = String((payload as { runId?: string })?.runId ?? '')
+    const ok = (await ctx.services.workflow?.deleteRun(runId)) ?? false
+    return { ok }
+  })
+
+  /**
+   * 打开产物文件 / 在文件夹中显示：
+   * 路径必须命中该运行记录的 artifacts 清单且文件存在，避免渲染端打开任意路径。
+   */
+  async function resolveArtifactPath(payload: unknown): Promise<{ path?: string; error?: string }> {
+    const { runId, path: targetPath } = (payload ?? {}) as { runId?: string; path?: string }
+    if (!runId || !targetPath) return { error: 'params_required' }
+    const run = (await ctx.services.workflow?.getRun(String(runId))) ?? null
+    if (!run) return { error: 'run_not_found' }
+    const matched = run.artifacts.some(a => a.path === targetPath)
+    if (!matched) return { error: 'not_in_run' }
+    if (!fs.existsSync(targetPath) || !fs.statSync(targetPath).isFile()) {
+      return { error: 'missing' }
+    }
+    return { path: targetPath }
+  }
+  ctx.ipc.handle('run-open-artifact', async (payload: unknown) => {
+    const resolved = await resolveArtifactPath(payload)
+    if (resolved.error || !resolved.path) return { ok: false, error: resolved.error }
+    // shell.openPath 成功返回空串，失败返回错误信息
+    const errMsg = await shell.openPath(resolved.path)
+    return { ok: !errMsg, error: errMsg || undefined }
+  })
+  ctx.ipc.handle('run-reveal-artifact', async (payload: unknown) => {
+    const resolved = await resolveArtifactPath(payload)
+    if (resolved.error || !resolved.path) return { ok: false, error: resolved.error }
+    shell.showItemInFolder(resolved.path)
+    return { ok: true }
   })
 
   // ====== 员工候选 ======
@@ -306,11 +372,10 @@ export function activate(ctx: PluginContext): void {
     createWorkflowTools({
       listTemplates: () => listTemplates(),
       getTemplate: (id) => loadTemplate(id),
-      saveTemplate: (input) => saveTemplate(input),
-      deleteTemplate: (id) => {
-        getDb().prepare('DELETE FROM workflow_templates WHERE id = ?').run(id)
-      },
+      saveTemplate: (input) => persistTemplate(input),
+      deleteTemplate: (id) => removeTemplate(id),
       listEmployeeIds,
+      runTemplate: (template, variables) => startRun(template, variables),
     }).map(tool => ({ ...tool, onDemand: true })),
   )
 

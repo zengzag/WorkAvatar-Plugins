@@ -12,10 +12,11 @@
     "workflow_update_node": "Update workflow node",
     "workflow_delete_node": "Delete workflow node",
     "workflow_validate_template": "Validate workflow",
+    "workflow_run_template": "Run task template",
     "workflow_delete_template": "Delete template"
   },
   "toolDescriptions": {
-    "workflow_list_templates": "List existing task templates (id / name / node count)",
+    "workflow_list_templates": "List existing task templates (id / name / node count / run inputs)",
     "workflow_get_template": "Read a template's full structure (nodes / edges / run inputs) by id",
     "workflow_create_template": "Create an empty template and return templateId, then add nodes and edges step by step",
     "workflow_update_template": "Update a template's name, description, or run inputs (only provided fields)",
@@ -26,6 +27,7 @@
     "workflow_update_node": "Update a node's label, instruction, role, or loop rounds",
     "workflow_delete_node": "Delete a node and clean up its connected edges",
     "workflow_validate_template": "Validate flow structure: missing role/instruction, bad branches, cycles, multiple entries, invalid employee ids",
+    "workflow_run_template": "Start a run by template id, optionally passing run inputs (defaults apply when omitted)",
     "workflow_delete_template": "Permanently delete a template (irreversible, requires confirmation)"
   },
   "page": {
@@ -48,13 +50,26 @@
     "saved": "Template saved",
     "duplicated": "Template duplicated",
     "variables": "Run inputs",
-    "variablesHint": "Values to fill in when running; reference them in node instructions as {{name}}",
+    "variablesHint": "Values to fill in when running. Reference them in node instructions as {{name}}; no separate node is needed.",
+    "variablesEmpty": "No run inputs yet. If the run needs information from the user (e.g. requirements, file paths), add a parameter here and reference it in node instructions as {{name}}.",
     "variableName": "Name",
     "variableDesc": "Hint",
+    "variableDefault": "Default",
     "variableNamePlaceholder": "e.g. Requirements",
-    "variableDescPlaceholder": "Hint shown to the person filling in the run form",
+    "variableDescPlaceholder": "Hint shown on hover of the label icon when running",
+    "variableDefaultPlaceholder": "Leave empty to make it required at run time",
     "addVariable": "Add input",
-    "updatedAt": "Updated"
+    "sampleVariable": "Requirements",
+    "sampleVariableDesc": "What this task needs to accomplish",
+    "sampleRole": "Task assistant",
+    "sampleRolePrompt": "You are a task assistant: complete this step based on the given requirements and return a clear, ready-to-use result.",
+    "sampleInstruction": "Complete this step based on the following requirements:",
+    "updatedAt": "Updated",
+    "none": "None",
+    "round": "Round {{n}}",
+    "saveFailed": "Save failed",
+    "repeatName": "Duplicate parameter name: {{name}}",
+    "unnamedVariable": "Please fill in the parameter name first"
   },
   "canvas": {
     "nodeLibrary": "Node library",
@@ -62,7 +77,12 @@
     "selectNode": "Select a node on the canvas to edit its properties",
     "back": "Back to templates",
     "deleteNode": "Delete node",
-    "dropHint": "Click a node in the left library to add it"
+    "deleteEdge": "Delete edge",
+    "dropHint": "Click a node in the left library to add it, or right-click here to create one",
+    "undo": "Undo",
+    "redo": "Redo",
+    "newNode": "New node",
+    "fitView": "Fit view"
   },
   "node": {
     "input": "Input",
@@ -74,7 +94,7 @@
     "human": "Manual",
     "tool": "Tool",
     "end": "End",
-    "inputDesc": "Declare run inputs (text/file)",
+    "inputDesc": "Flow start marker; can carry run input text",
     "agentDesc": "Run one step with a digital employee or ephemeral role",
     "reviewDesc": "Structured review producing a pass/fail verdict",
     "conditionDesc": "Route branches by upstream verdict or expression",
@@ -104,6 +124,7 @@
     "instruction": "Task instruction",
     "instructionPlaceholder": "Describe what this step does. Use {{var}} or {{nodeId}} to reference upstream output",
     "instructionHint": "Variables: {{var}} for run inputs, {{nodeId}} for upstream node output",
+    "inputInstructionHint": "The input node's instruction may reference run inputs (e.g. {{Requirements}}); its rendered text can be referenced downstream as {{nodeId}}",
     "maxRounds": "Max rounds",
     "maxRoundsHint": "After reaching the limit the loop stops re-entering",
     "verdictHint": "Review verdict comes from the LLM's FINAL_VERDICT marker (PASS / FAIL) and drives outgoing branches"
@@ -124,12 +145,54 @@
     "start": "Start run",
     "starting": "Starting…",
     "variableRequired": "Please fill in \"{{name}}\"",
-    "openTask": "Open Tasks page",
-    "nodeStatus": "Node status",
+    "variableOptional": "Optional, uses the default value",
+    "noVariables": "This template needs no run inputs, click \"Start run\" to proceed.",
+    "startedAt": "Started",
+    "finishedAt": "Finished",
+    "duration": "Duration",
+    "currentNode": "Running: {{name}}",
+    "viewLatestRun": "View latest run details",
+    "nodeProgress": "Nodes {{done}}/{{total}}",
+    "result": "Result",
     "artifacts": "Artifacts",
     "noArtifacts": "No artifacts yet",
     "abort": "Abort run",
-    "noHistory": "No runs yet"
+    "abortConfirm": "Abort this run?",
+    "detail": "Run detail",
+    "delete": "Delete record",
+    "deleteConfirm": "Delete this run record?",
+    "deleted": "Run record deleted",
+    "deleteRunning": "Running tasks cannot be deleted",
+    "noHistory": "No runs yet",
+    "inputs": "Run inputs",
+    "statNodes": "Node progress",
+    "statTokens": "Token usage",
+    "statArtifacts": "Artifacts",
+    "tokens": "Tokens",
+    "tokenInput": "Input",
+    "tokenOutput": "Output",
+    "tokenCached": "Cached",
+    "expandAll": "Expand all",
+    "collapseAll": "Collapse all",
+    "expandText": "Expand",
+    "copy": "Copy",
+    "copied": "Copied",
+    "openFile": "Open file",
+    "openFolder": "Show in folder",
+    "openFailed": "Open failed",
+    "artifactError": {
+      "params_required": "Missing parameters",
+      "run_not_found": "Run record not found",
+      "not_in_run": "This file is not an artifact of the run",
+      "missing": "File does not exist or has been moved",
+      "unknown": "Unknown error"
+    },
+    "event": {
+      "prompt": "Instruction",
+      "thinking": "Thinking",
+      "toolInput": "Input",
+      "toolOutput": "Output"
+    }
   },
   "status": {
     "pending": "Pending",
@@ -143,10 +206,5 @@
     "pass": "Pass",
     "fail": "Fail",
     "deferred": "Deferred"
-  },
-  "common": {
-    "none": "None",
-    "round": "Round {{n}}",
-    "saveFailed": "Save failed"
   }
 }

@@ -7,7 +7,10 @@ import type { PluginWorkflowNodeType } from '@workavatar/plugin-sdk'
 /** 运行入参声明 */
 export interface WorkflowVariable {
   name: string
+  /** 运行时展示在标题提示图标里的说明 */
   description?: string
+  /** 运行时的默认值；填写后该参数可留空直接运行 */
+  defaultValue?: string
 }
 
 /** 节点上的临时角色（仅在模板运行期存在的数字员工） */

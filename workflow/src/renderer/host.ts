@@ -27,4 +27,10 @@ export function onRunEvent(callback: (event: PluginWorkflowRunEvent) => void): (
   return hostRef.bridge.onEvent('run-event', (payload) => callback(payload as PluginWorkflowRunEvent))
 }
 
+/** 订阅模板变更（主进程在任意写操作后广播，含 LLM 经 agent 工具的增删改） */
+export function onTemplatesChanged(callback: () => void): () => void {
+  if (!hostRef) return () => {}
+  return hostRef.bridge.onEvent('templates-changed', () => callback())
+}
+
 export type { PluginWorkflowRun, PluginWorkflowRunEvent }

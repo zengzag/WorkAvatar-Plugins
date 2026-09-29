@@ -1,23 +1,17 @@
-/** 运行模板任务：填写入参并启动，随后展示节点进度与产物 */
-import { useEffect, useState } from 'react'
-import { Alert, Button, Drawer, Empty, Form, Input, List, Modal, Space, Tag, Typography, theme } from 'antd'
+/** 运行模板任务：填写入参并启动，随后展示执行过程；含运行历史抽屉 */
+import { useEffect, useMemo, useState } from 'react'
+import { Alert, Button, Drawer, Empty, Form, Input, Modal, Popconfirm, Space, Spin, Tag, Tooltip, Typography, message, theme } from 'antd'
+import { DeleteOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 import type { PluginWorkflowRun } from '@workavatar/plugin-sdk'
-import { invoke, onRunEvent, t } from './host'
+import { invoke, t } from './host'
 import { useWorkflowStore } from './store'
+import { RunBody } from './RunDetail'
+import { STATUS_COLOR, formatDuration, formatTime } from './RunTimeline'
 import type { WorkflowTemplate } from '../shared/types'
 
 interface Props {
   template: WorkflowTemplate | null
   onClose: () => void
-}
-
-const STATUS_COLOR: Record<string, string> = {
-  pending: 'default',
-  running: 'processing',
-  completed: 'success',
-  failed: 'error',
-  aborted: 'warning',
-  skipped: 'default',
 }
 
 export function RunDialog({ template, onClose }: Props) {
@@ -28,18 +22,15 @@ export function RunDialog({ template, onClose }: Props) {
   const activeRun = useWorkflowStore(s => s.activeRun)
   const setActiveRun = useWorkflowStore(s => s.setActiveRun)
 
-  useEffect(() => {
-    if (!template) return
-    const off = onRunEvent((event) => {
-      useWorkflowStore.getState().applyRunEvent(event)
-      if (event.eventType === 'run:end') {
-        void invoke<{ run: PluginWorkflowRun | null }>('run-get', { runId: event.runId })
-          .then(res => { if (res?.run) setActiveRun(res.run) })
-          .catch(() => { /* ignore */ })
-      }
-    })
-    return off
-  }, [template, setActiveRun])
+  /** 只展示属于当前模板的运行进度，避免旧运行残留污染入参表单 */
+  const showRun = !!template && !!activeRun && activeRun.templateId === template.id
+
+  /** 入参默认值预填（模板侧配置的 defaultValue） */
+  const initialValues = useMemo(() => {
+    const values: Record<string, string> = {}
+    for (const variable of template?.variables || []) values[variable.name] = variable.defaultValue || ''
+    return values
+  }, [template?.variables])
 
   const start = async () => {
     if (!template) return
@@ -68,16 +59,19 @@ export function RunDialog({ template, onClose }: Props) {
     }
   }
 
-  const abort = async () => {
-    if (!activeRun) return
-    await invoke('run-abort', { runId: activeRun.runId })
+  const abort = () => {
+    if (activeRun) void invoke('run-abort', { runId: activeRun.runId })
   }
 
-  const openTaskPage = () => {
-    const conversationId = activeRun?.conversationId
-    if (conversationId) window.location.hash = `#/tasks?conversation=${conversationId}`
-    else window.location.hash = '#/tasks'
-  }
+  const runActions = activeRun ? (
+    <Space size={6}>
+      {activeRun.status === 'running' ? (
+        <Popconfirm title={t('run.abortConfirm')} onConfirm={abort} okButtonProps={{ danger: true }}>
+          <Button size="small" danger>{t('run.abort')}</Button>
+        </Popconfirm>
+      ) : null}
+    </Space>
+  ) : null
 
   return (
     <Modal
@@ -85,22 +79,55 @@ export function RunDialog({ template, onClose }: Props) {
       title={`${t('run.title')} · ${template?.name || ''}`}
       onCancel={onClose}
       footer={null}
-      width={640}
+      width={820}
       destroyOnHidden
     >
       {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} />}
 
-      {!activeRun && (
-        <Form form={form} layout="vertical" size="small">
+      {!showRun && (
+        <Form
+          form={form}
+          layout="vertical"
+          size="small"
+          key={template?.id || 'none'}
+          initialValues={initialValues}
+        >
           {template?.variables?.length ? (
-            template.variables.map(v => (
-              <Form.Item key={v.name} name={v.name} label={v.name} extra={v.description}
-                rules={[{ required: true, message: t('run.variableRequired', { name: v.name }) }]}>
-                <Input.TextArea autoSize={{ minRows: 2, maxRows: 6 }} />
-              </Form.Item>
-            ))
+            template.variables.map(v => {
+              const hasDefault = !!v.defaultValue
+              return (
+                <Form.Item
+                  key={v.name}
+                  name={v.name}
+                  style={{ marginBottom: 10 }}
+                  label={
+                    <Space size={4}>
+                      <span>{v.name}</span>
+                      {v.description ? (
+                        <Tooltip title={v.description}>
+                          <QuestionCircleOutlined style={{ color: token.colorTextTertiary, fontSize: 12 }} />
+                        </Tooltip>
+                      ) : null}
+                      {hasDefault ? (
+                        <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                          ({t('run.variableOptional')})
+                        </Typography.Text>
+                      ) : null}
+                    </Space>
+                  }
+                  rules={hasDefault ? [] : [{ required: true, message: t('run.variableRequired', { name: v.name }) }]}
+                >
+                  <Input.TextArea
+                    autoSize={{ minRows: 2, maxRows: 6 }}
+                    placeholder={hasDefault ? v.defaultValue : (v.description || '')}
+                  />
+                </Form.Item>
+              )
+            })
           ) : (
-            <Typography.Text type="secondary">{t('template.variables')}: {t('common.none')}</Typography.Text>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {t('run.noVariables')}
+            </Typography.Text>
           )}
           <Button type="primary" loading={starting} onClick={start} style={{ marginTop: 8 }}>
             {starting ? t('run.starting') : t('run.start')}
@@ -108,100 +135,94 @@ export function RunDialog({ template, onClose }: Props) {
         </Form>
       )}
 
-      {activeRun && (
-        <div>
-          <Space style={{ marginBottom: 12 }}>
-            <Tag color={STATUS_COLOR[activeRun.status]}>{t(`status.${activeRun.status}`)}</Tag>
-            <Button size="small" onClick={openTaskPage}>{t('run.openTask')}</Button>
-            {activeRun.status === 'running' && (
-              <Button size="small" danger onClick={abort}>{t('run.abort')}</Button>
-            )}
-          </Space>
-
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>{t('run.nodeStatus')}</Typography.Text>
-          <List
-            size="small"
-            dataSource={activeRun.nodes}
-            renderItem={(node) => (
-              <List.Item style={{ padding: '6px 0' }}>
-                <div style={{ width: '100%' }}>
-                  <Space size={6}>
-                    <Tag color={STATUS_COLOR[node.status]}>{t(`status.${node.status}`)}</Tag>
-                    <Typography.Text style={{ fontSize: 13 }}>{node.label}</Typography.Text>
-                    {node.verdict && (
-                      <Typography.Text style={{ fontSize: 12, color: node.verdict === 'pass' ? token.colorSuccess : token.colorError }}>
-                        {t(`verdict.${node.verdict}`)}
-                      </Typography.Text>
-                    )}
-                  </Space>
-                  {node.error && (
-                    <Typography.Text type="danger" style={{ fontSize: 12, display: 'block' }}>{node.error}</Typography.Text>
-                  )}
-                </div>
-              </List.Item>
-            )}
-          />
-
-          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 12 }}>
-            {t('run.artifacts')}
-          </Typography.Text>
-          {activeRun.artifacts.length === 0 ? (
-            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('run.noArtifacts')} />
-          ) : (
-            <List
-              size="small"
-              dataSource={activeRun.artifacts}
-              renderItem={(a) => (
-                <List.Item style={{ padding: '4px 0' }}>
-                  <Typography.Text style={{ fontSize: 12 }} ellipsis={{ tooltip: a.path }}>{a.path}</Typography.Text>
-                </List.Item>
-              )}
-            />
-          )}
-        </div>
-      )}
+      {showRun && activeRun && <RunBody run={activeRun} actions={runActions} />}
     </Modal>
   )
 }
 
-/** 运行历史抽屉 */
+/** 运行历史抽屉：状态 / 时间 / 耗时 / 进度 / 失败原因，点入详情，可删除记录 */
 export function RunHistoryDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { token } = theme.useToken()
   const runs = useWorkflowStore(s => s.runs)
   const setRuns = useWorkflowStore(s => s.setRuns)
-  const setActiveRun = useWorkflowStore(s => s.setActiveRun)
+  const openRunDetail = useWorkflowStore(s => s.openRunDetail)
+  const deleteRun = useWorkflowStore(s => s.deleteRun)
+  const [loading, setLoading] = useState(false)
+  const [hovered, setHovered] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
-    void invoke<{ list: PluginWorkflowRun[] }>('run-list', { limit: 50 })
+    setLoading(true)
+    void invoke<{ list: PluginWorkflowRun[] }>('run-list', { limit: 100 })
       .then(res => setRuns(res?.list || []))
       .catch(() => setRuns([]))
+      .finally(() => setLoading(false))
   }, [open, setRuns])
 
+  const remove = async (run: PluginWorkflowRun) => {
+    if (await deleteRun(run.runId)) message.success(t('run.deleted'))
+    else message.warning(t('run.deleteRunning'))
+  }
+
   return (
-    <Drawer open={open} onClose={onClose} title={t('page.runHistory')} width={420}>
-      {runs.length === 0 ? (
+    <Drawer open={open} onClose={onClose} title={t('page.runHistory')} width={480}>
+      {loading && runs.length === 0 ? (
+        <div style={{ padding: 48, textAlign: 'center' }}><Spin /></div>
+      ) : runs.length === 0 ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('run.noHistory')} />
       ) : (
-        <List
-          size="small"
-          dataSource={runs}
-          renderItem={(run) => (
-            <List.Item
-              onClick={() => { setActiveRun(run); onClose() }}
-              style={{ cursor: 'pointer' }}
+        runs.map(run => {
+          const done = run.nodes.filter(n => n.status === 'completed').length
+          const current = run.nodes.find(n => n.status === 'running')
+          return (
+            <div
+              key={run.runId}
+              onClick={() => openRunDetail(run.runId)}
+              onMouseEnter={() => setHovered(run.runId)}
+              onMouseLeave={() => setHovered(null)}
+              style={{
+                padding: '10px 12px', marginBottom: 8, borderRadius: 8, cursor: 'pointer',
+                border: `1px solid ${hovered === run.runId ? token.colorPrimaryBorder : token.colorBorderSecondary}`,
+                background: token.colorBgContainer,
+                transition: 'border-color 0.2s',
+              }}
             >
-              <div>
-                <Space size={6}>
-                  <Tag color={STATUS_COLOR[run.status]}>{t(`status.${run.status}`)}</Tag>
-                  <Typography.Text style={{ fontSize: 13 }}>{run.templateName || run.templateId}</Typography.Text>
-                </Space>
-                <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
-                  {run.startedAt ? new Date(run.startedAt * 1000).toLocaleString() : ''}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Typography.Text strong style={{ fontSize: 13, flex: 1, minWidth: 0 }} ellipsis>
+                  {run.templateName || run.templateId}
                 </Typography.Text>
+                <Tag color={STATUS_COLOR[run.status]} style={{ marginInlineEnd: 0 }}>{t(`status.${run.status}`)}</Tag>
+                {run.status !== 'running' ? (
+                  <span onClick={e => e.stopPropagation()}>
+                    <Popconfirm title={t('run.deleteConfirm')} onConfirm={() => remove(run)} okButtonProps={{ danger: true }}>
+                      <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+                    </Popconfirm>
+                  </span>
+                ) : null}
               </div>
-            </List.Item>
-          )}
-        />
+
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 4, fontSize: 11, color: token.colorTextTertiary }}>
+                <span>{formatTime(run.startedAt)}</span>
+                <span>{t('run.duration')}: {formatDuration(run.startedAt, run.endedAt) ?? '-'}</span>
+                <span>{t('run.nodeProgress', { done, total: run.nodes.length })}</span>
+              </div>
+
+              {current ? (
+                <Typography.Text style={{ fontSize: 12, color: token.colorInfo, display: 'block', marginTop: 4 }}>
+                  {t('run.currentNode', { name: current.label })}
+                </Typography.Text>
+              ) : null}
+
+              {run.error ? (
+                <div style={{ marginTop: 6, padding: '4px 8px', borderRadius: 4, background: token.colorErrorBg }}>
+                  <Typography.Text type="danger" style={{ fontSize: 12 }} ellipsis={{ tooltip: run.error }}>
+                    {run.error}
+                  </Typography.Text>
+                </div>
+              ) : null}
+            </div>
+          )
+        })
       )}
     </Drawer>
   )

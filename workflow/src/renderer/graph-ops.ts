@@ -23,17 +23,18 @@ export function nextNodeId(graph: WorkflowGraph): string {
   return `node${i}`
 }
 
-/** 追加节点 */
+/** 追加节点（可指定画布坐标，右键在指定位置新建时使用） */
 export function addNodeToGraph(
   graph: WorkflowGraph,
   type: PluginWorkflowNodeType,
   label: string,
+  position?: { x: number; y: number },
 ): WorkflowGraph {
   const id = nextNodeId(graph)
   const node: WorkflowNode = {
     id,
     type,
-    position: spawnPosition((graph.nodes || []).length),
+    position: position ?? spawnPosition((graph.nodes || []).length),
     data: defaultNodeData(type, label),
   }
   return { ...graph, nodes: [...(graph.nodes || []), node] }
@@ -87,16 +88,17 @@ export function deleteEdgeFromGraph(graph: WorkflowGraph, id: string): WorkflowG
   return { ...graph, edges: (graph.edges || []).filter(e => e.id !== id) }
 }
 
-/** 把画布上的节点位置合并回业务模型（拖拽结束后调用） */
+/** 把画布上的节点位置合并回业务模型（拖拽结束后调用）；位置无变化时原样返回，避免产生空历史 */
 export function applyPositions(
   graph: WorkflowGraph,
   positions: Map<string, { x: number; y: number }>,
 ): WorkflowGraph {
-  return {
-    ...graph,
-    nodes: (graph.nodes || []).map(n => ({
-      ...n,
-      position: positions.get(n.id) ?? n.position,
-    })),
-  }
+  let changed = false
+  const nodes = (graph.nodes || []).map(n => {
+    const position = positions.get(n.id)
+    if (!position || (position.x === n.position.x && position.y === n.position.y)) return n
+    changed = true
+    return { ...n, position }
+  })
+  return changed ? { ...graph, nodes } : graph
 }

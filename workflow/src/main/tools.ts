@@ -6,10 +6,10 @@
  *   LLM 每步都能拿到回读结果（id / 当前结构），显著降低一次生成大 JSON 的出错率。
  * - 单独提供 validate 工具，让 LLM 在运行前自查「缺角色 / 死循环 / 分支缺失」等常见问题。
  */
-import type { PluginToolDefinition } from '@workavatar/plugin-sdk'
+import type { PluginToolDefinition, PluginWorkflowRun } from '@workavatar/plugin-sdk'
 import type { WorkflowGraph, WorkflowTemplate, WorkflowVariable } from '../shared/types'
 
-/** 工具集对存储层的依赖（由主进程注入，便于单测） */
+/** 工具集对存储层与运行能力的依赖（由主进程注入，便于单测） */
 export interface WorkflowToolDeps {
   listTemplates(): WorkflowTemplate[]
   getTemplate(id: string): WorkflowTemplate | null
@@ -17,9 +17,38 @@ export interface WorkflowToolDeps {
   deleteTemplate(id: string): void
   /** 当前真实存在的数字员工 id（校验 employeeId，防 LLM 臆造；缺省则跳过校验） */
   listEmployeeIds?(): Promise<string[]>
+  /** 启动一次模板运行（由主进程注入内核编排能力；缺省表示当前环境不支持直接运行） */
+  runTemplate?(template: WorkflowTemplate, variables: Record<string, string>): Promise<{ run?: PluginWorkflowRun; error?: string }>
 }
 
 const NODE_TYPES = ['input', 'agent', 'review', 'condition', 'loop', 'parallel', 'human', 'tool', 'end'] as const
+
+/** 运行入参声明的 JSON Schema（create/update 共用） */
+const VARIABLE_ITEM_SCHEMA = {
+  type: 'object',
+  properties: {
+    name: { type: 'string', description: '参数名（在指令中用 {{参数名}} 引用）' },
+    description: { type: 'string', description: '运行时展示在参数标题提示图标里的说明' },
+    defaultValue: { type: 'string', description: '运行时的默认值；填写后该参数可留空直接运行' },
+  },
+  required: ['name'],
+}
+
+/** 规范化入参声明：仅保留 name/description/defaultValue，丢弃空名行 */
+function normalizeVariables(input: unknown): WorkflowVariable[] {
+  if (!Array.isArray(input)) return []
+  const out: WorkflowVariable[] = []
+  for (const raw of input) {
+    const item = (raw || {}) as WorkflowVariable
+    const name = typeof item.name === 'string' ? item.name.trim() : ''
+    if (!name) continue
+    const variable: WorkflowVariable = { name }
+    if (item.description != null) variable.description = String(item.description)
+    if (item.defaultValue != null) variable.defaultValue = String(item.defaultValue)
+    out.push(variable)
+  }
+  return out
+}
 
 /** 生成图内唯一节点 id */
 function nextNodeId(graph: WorkflowGraph): string {
@@ -169,8 +198,8 @@ export function createWorkflowTools(deps: WorkflowToolDeps): PluginToolDefinitio
       summary: '创建一个空模板并返回 templateId',
       description: [
         '创建一个新的空模板任务模板，返回 templateId；随后用 workflow_add_node / workflow_add_edge 逐步搭建流程。',
-        'variables 声明运行入参（name 为参数名、description 为提示），节点指令里可用 {{参数名}} 引用。',
-        '推荐流程：create_template → add_node(输入) → add_node(智能体/评审) → add_edge → validate_template → run 前交用户确认。',
+        'variables 声明运行入参：name 为参数名（节点指令里用 {{参数名}} 引用）、description 为运行时的提示说明、defaultValue 为默认值（填了则运行时该参数可留空）。',
+        '推荐流程：create_template → add_node(输入) → add_node(智能体/评审) → add_edge → validate_template → 交用户确认运行或直接 workflow_run_template。',
         '入参或名称后续要改，用 workflow_update_template。',
       ].join('\n'),
       parameters: {
@@ -181,25 +210,17 @@ export function createWorkflowTools(deps: WorkflowToolDeps): PluginToolDefinitio
           variables: {
             type: 'array',
             description: '运行入参声明',
-            items: {
-              type: 'object',
-              properties: {
-                name: { type: 'string', description: '参数名（在指令中用 {{参数名}} 引用）' },
-                description: { type: 'string', description: '参数提示文案' },
-              },
-              required: ['name'],
-            },
+            items: VARIABLE_ITEM_SCHEMA,
           },
         },
         required: ['name'],
       },
       permission: 'safe',
       handler: (args) => {
-        const variables = Array.isArray(args.variables) ? (args.variables as WorkflowVariable[]) : []
         const template = deps.saveTemplate({
           name: String(args.name || '').trim() || 'Untitled',
           description: String(args.description || ''),
-          variables: variables.filter(v => v && typeof v.name === 'string'),
+          variables: normalizeVariables(args.variables),
           graph: { nodes: [], edges: [] },
         })
         return { success: true, templateId: template.id, template }
@@ -213,6 +234,7 @@ export function createWorkflowTools(deps: WorkflowToolDeps): PluginToolDefinitio
       description: [
         '按 templateId 更新模板级字段：name / description / variables（运行入参声明）。',
         '只传需要修改的字段，未传的字段保持不变；variables 为整体替换。',
+        'variables 每项含 name（指令中 {{参数名}} 引用）、description（运行时提示）、defaultValue（默认值）。',
         '典型场景：用户补充了输入要求后，用本工具补齐 variables，再让节点指令用 {{参数名}} 引用。',
       ].join('\n'),
       parameters: {
@@ -224,14 +246,7 @@ export function createWorkflowTools(deps: WorkflowToolDeps): PluginToolDefinitio
           variables: {
             type: 'array',
             description: '运行入参声明（整体替换）',
-            items: {
-              type: 'object',
-              properties: {
-                name: { type: 'string', description: '参数名（在指令中用 {{参数名}} 引用）' },
-                description: { type: 'string', description: '参数提示文案' },
-              },
-              required: ['name'],
-            },
+            items: VARIABLE_ITEM_SCHEMA,
           },
         },
         required: ['templateId'],
@@ -243,10 +258,7 @@ export function createWorkflowTools(deps: WorkflowToolDeps): PluginToolDefinitio
         const patch: Partial<WorkflowTemplate> = {}
         if (args.name !== undefined) patch.name = String(args.name).trim() || template.name
         if (args.description !== undefined) patch.description = String(args.description)
-        if (args.variables !== undefined) {
-          const vars = Array.isArray(args.variables) ? (args.variables as WorkflowVariable[]) : []
-          patch.variables = vars.filter(v => v && typeof v.name === 'string')
-        }
+        if (args.variables !== undefined) patch.variables = normalizeVariables(args.variables)
         const saved = deps.saveTemplate({ ...template, ...patch })
         return { success: true, template: saved }
       },
@@ -352,6 +364,7 @@ export function createWorkflowTools(deps: WorkflowToolDeps): PluginToolDefinitio
         '在 sourceId → targetId 之间添加一条有向连线。',
         'when 为分支标签：仅评审/条件节点的出边可用，取值 "pass" 或以 "fail" 开头（如 "fail"）；留空表示默认分支。',
         '实现「多轮迭代」的写法：评审节点出边 pass → 后续节点，出边 fail → 回到撰写节点上方插入的 loop 节点（loop 的 maxRounds 控制上限）。',
+        '回写时引擎会自动把评审意见与该节点上一轮产出注入被回写的执行节点（无需在指令里手动引用评审节点），撰写节点指令只需说明「依据评审意见逐条修订」即可。',
         '标签加错或连线加错时，分别用 workflow_update_edge / workflow_delete_edge 修正，不要重复添加。',
       ].join('\n'),
       parameters: {
@@ -583,6 +596,73 @@ export function createWorkflowTools(deps: WorkflowToolDeps): PluginToolDefinitio
         const employeeIds = deps.listEmployeeIds ? await deps.listEmployeeIds() : undefined
         const problems = validateGraph(template.graph, employeeIds)
         return { success: problems.length === 0, problems }
+      },
+    },
+    {
+      id: 'workflow_run_template',
+      name: 'workflow_run_template',
+      title: '运行模板任务',
+      summary: '按模板 id 直接启动一次运行，可同时传入运行入参',
+      description: [
+        '按 templateId 启动一次模板任务运行（后台执行），返回 runId 与 conversationId，可在任务页查看进度与产物。',
+        'variables 为运行入参对象 { 参数名: 值 }：先用 workflow_get_template 查看模板声明的入参名，再逐个填写。',
+        '未传或留空的参数会用模板里声明的 defaultValue 兜底；既无值又无默认值的必填参数会被拒绝，请先向用户确认取值。',
+        '仅当用户明确要求运行时才调用；运行前会自动做结构校验，结构有问题会直接返回 problems 而不会跑出半截流程。',
+      ].join('\n'),
+      parameters: {
+        type: 'object',
+        properties: {
+          templateId: { type: 'string', description: '模板 id（来自 workflow_list_templates）' },
+          variables: {
+            type: 'object',
+            description: '运行入参：{ 参数名: 值 }；缺省则使用模板默认值',
+            additionalProperties: { type: 'string' },
+          },
+        },
+        required: ['templateId'],
+      },
+      permission: 'safe',
+      handler: async (args) => {
+        const template = deps.getTemplate(String(args.templateId || ''))
+        if (!template) return { success: false, error: `模板不存在: ${args.templateId}` }
+        if (!deps.runTemplate) return { success: false, error: '当前环境不支持直接运行模板任务' }
+
+        // 结构预检：缺角色/分支缺失/成环等问题直接返回 problems，不启动半截流程
+        const employeeIds = deps.listEmployeeIds ? await deps.listEmployeeIds() : undefined
+        const problems = validateGraph(template.graph, employeeIds)
+        if (problems.length > 0) {
+          return { success: false, error: `流程结构有问题，无法运行：${problems.join('；')}`, problems }
+        }
+
+        const provided = (args.variables && typeof args.variables === 'object')
+          ? (args.variables as Record<string, unknown>)
+          : {}
+        const variables: Record<string, string> = {}
+        const missing: string[] = []
+        for (const variable of template.variables || []) {
+          const raw = provided[variable.name]
+          const value = raw != null && String(raw).trim() ? String(raw) : (variable.defaultValue || '')
+          if (value) variables[variable.name] = value
+          else missing.push(variable.name)
+        }
+        // 模板未声明的额外参数一并透传，交由用户/LLM 自行约定
+        for (const [key, value] of Object.entries(provided)) {
+          if (!(key in variables) && value != null) variables[key] = String(value)
+        }
+        if (missing.length > 0) {
+          return { success: false, error: `缺少必填运行入参：${missing.join('、')}（请向用户确认取值，或在模板中为参数设置默认值）` }
+        }
+
+        const res = await deps.runTemplate(template, variables)
+        if (res.error || !res.run) return { success: false, error: res.error || '运行启动失败' }
+        return {
+          success: true,
+          runId: res.run.runId,
+          conversationId: res.run.conversationId,
+          status: res.run.status,
+          nodeCount: res.run.nodes.length,
+          hint: '运行已在后台启动，可在「任务」页查看节点进度与产出文件',
+        }
       },
     },
     {
