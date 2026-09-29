@@ -2,7 +2,7 @@
  * Outlook 单向同步引擎：本地 SQLite → Outlook（Graph API）。
  * 由宿主 outlook-sync.service.ts 迁移而来。差异点：
  * - 不再继承 ScheduledTaskBase：start() 立即跑一次 runCheck + every(60s)，stop() 取消
- * - 配置/状态存插件库 plugin_kv（calendar_outlook_sync_config / calendar_outlook_sync_state），映射表 calendar_sync_map
+ * - 配置/状态/映射归属账号存插件库 plugin_kv（calendar_outlook_sync_config / calendar_outlook_sync_state / calendar_outlook_sync_account），映射表 calendar_sync_map
  * - broadcast() 改走 ctx.ipc.broadcast('outlook-sync-changed', status)
  */
 import type { PluginContext } from '@workavatar/plugin-sdk'
@@ -22,6 +22,18 @@ const GRAPH_BASE = 'https://graph.microsoft.com/v1.0'
 const TARGET_NAME = 'WorkAvatar'
 const CONFIG_KEY = 'calendar_outlook_sync_config'
 const STATE_KEY = 'calendar_outlook_sync_state'
+/** 映射表归属的 Outlook 账号 id：换号登录时据此清空映射 */
+const ACCOUNT_KEY = 'calendar_outlook_sync_account'
+/** 远端事件回指本地 id 的单值扩展属性（Outlook 界面不可见，映射丢失后凭它精确找回）；todoTask 不支持此属性，待办仅用模糊匹配 */
+const LOCAL_ID_PROP = 'String {7c1f5a8e-2b64-4d9a-9f3e-8a5d1c6b0e42} Name WorkAvatarId'
+
+/** 远端对象：id + 回指的本地 id + 去重键 */
+interface RemoteObj { id: string; localId?: string; key: string; used: boolean }
+interface RemoteIndex {
+  objs: RemoteObj[]
+  byMarker: Map<string, RemoteObj[]>
+  byFuzzy: Map<string, RemoteObj[]>
+}
 
 const DEFAULT_CONFIG: OutlookSyncConfig = {
   enabled: true,
@@ -122,14 +134,36 @@ class OutlookSyncService {
     }
   }
 
-  /** 登出时清空映射（换账号后旧 remote_id 无效，重新登录会全量重建） */
+  /**
+   * 登出：仅重置内存缓存与状态，保留映射表。
+   * 同一账号重新登录时映射仍有效，避免全量重建造成 Outlook 侧重复；
+   * 换号登录由 ensureMapAccount 检测账号变化后清空。
+   */
   onLogout(): void {
-    this.db.prepare('DELETE FROM calendar_sync_map WHERE target = ?').run('outlook')
     this.calendarId = null
     this.todoListId = null
     this.lastDataVersion = ''
     this.saveState({ last_result: null, last_error: null })
     this.broadcast()
+  }
+
+  /** 账号变化（换号登录）时清空映射：旧 remote_id 属于另一账号，且目标日历/列表不同 */
+  private ensureMapAccount(): void {
+    const current = getOutlookAuthService(this.ctx).getAccount()?.id || ''
+    if (!current) return
+    let stored = ''
+    try {
+      const row = this.db.prepare('SELECT value FROM plugin_kv WHERE key = ?').get(ACCOUNT_KEY) as { value?: string } | undefined
+      stored = row?.value || ''
+    } catch { /* ignore */ }
+    if (stored === current) return
+    if (stored) {
+      this.db.prepare('DELETE FROM calendar_sync_map WHERE target = ?').run('outlook')
+      this.ctx.services.logger.info('Outlook 账号变化，清空同步映射')
+    }
+    this.db.prepare(
+      `INSERT INTO plugin_kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+    ).run(ACCOUNT_KEY, current)
   }
 
   // ====== 调度 ======
@@ -161,19 +195,92 @@ class OutlookSyncService {
     this.ctx.ipc.broadcast('outlook-sync-changed', this.getStatus())
   }
 
+  // ====== 云端重置 ======
+
+  /**
+   * 清空云端目标日历/列表中本插件推送的全部对象并重置映射，随后全量重推。
+   * 用于修复云端已产生的重复数据：结束后云端与本地一一对应、仅保留一份。
+   */
+  async clearRemoteAndResync(): Promise<OutlookSyncStatus> {
+    const auth = getOutlookAuthService(this.ctx)
+    if (this.syncing || !auth.isLoggedIn()) return this.getStatus()
+    this.syncing = true
+    this.broadcast()
+    let purged = false
+    try {
+      const token = await auth.getAccessToken()
+      if (!token) throw new Error(this.ctx.services.i18n.t('calendar.outlookSessionExpired'))
+      const cfg = this.getConfig()
+      if (cfg.sync_events) {
+        this.calendarId = await this.ensureTargetCalendar(token)
+        await this.purgeRemote(token, 'event')
+      }
+      if (cfg.sync_todos) {
+        this.todoListId = await this.ensureTodoList(token)
+        await this.purgeRemote(token, 'todo')
+      }
+      purged = true
+    } catch (err: any) {
+      this.ctx.services.logger.error('Clear remote failed:', err?.message)
+      this.saveState({ ...this.loadState(), last_error: err?.message || this.ctx.services.i18n.t('calendar.outlookClearRemoteFailed') })
+    } finally {
+      this.syncing = false
+      this.broadcast()
+    }
+    if (purged) {
+      // 云端已清空：映射指向的对象已不存在，全部重置后由 runSync 全量重建
+      this.db.prepare('DELETE FROM calendar_sync_map WHERE target = ?').run('outlook')
+      this.lastDataVersion = ''
+      this.saveState({ last_result: null, last_error: null })
+      this.ctx.services.logger.info('Outlook 远端已清空，全量重推本地数据')
+      // force：即使「启用同步」关闭也执行本次重推（按钮语义为清空+重推）
+      await this.runSync(true)
+    }
+    return this.getStatus()
+  }
+
+  /** 删除目标日历/列表中本插件推送的全部远端对象（单个失败仅记录日志，尽量清完） */
+  private async purgeRemote(token: string, type: 'event' | 'todo'): Promise<void> {
+    const ids: string[] = []
+    // 不带 $expand 拉全量：清空只需 id，事件按 WorkAvatar 分类过滤，避免误删手工日程
+    let path: string | null = type === 'event'
+      ? `/me/calendars/${this.calendarId}/events?$select=id,categories`
+      : `/me/todo/lists/${this.todoListId}/tasks`
+    while (path) {
+      const json = await this.graph(token, 'GET', path)
+      for (const item of json?.value || []) {
+        if (type === 'event' && !(item.categories || []).includes(TARGET_NAME)) continue
+        ids.push(item.id)
+      }
+      const next: string | undefined = json?.['@odata.nextLink']
+      path = next?.startsWith(GRAPH_BASE) ? next.slice(GRAPH_BASE.length) : null
+    }
+    for (const id of ids) {
+      try {
+        const delPath = type === 'event' ? `/me/events/${id}` : `/me/todo/lists/${this.todoListId}/tasks/${id}`
+        await this.graph(token, 'DELETE', delPath)
+      } catch (err: any) {
+        this.ctx.services.logger.error(`Purge remote ${type} ${id} failed:`, err?.message)
+      }
+      await sleep(150)
+    }
+    this.ctx.services.logger.info(`Purged remote ${type}: ${ids.length}`)
+  }
+
   // ====== 同步主流程 ======
 
-  async runSync(): Promise<void> {
+  async runSync(force = false): Promise<void> {
     const auth = getOutlookAuthService(this.ctx)
     if (this.syncing || !auth.isLoggedIn()) return
     const cfg = this.getConfig()
-    if (!cfg.enabled) return
+    if (!cfg.enabled && !force) return
 
     this.syncing = true
     this.broadcast()
     const result: OutlookSyncResult = { created: 0, updated: 0, deleted: 0, failed: 0, errors: [], synced_at: Math.floor(Date.now() / 1000) }
     let syncOk = false
     try {
+      this.ensureMapAccount()
       const token = await auth.getAccessToken()
       if (!token) throw new Error(this.ctx.services.i18n.t('calendar.outlookSessionExpired'))
 
@@ -267,15 +374,27 @@ class OutlookSyncService {
     const mapRows = this.loadMap('event')
     const mapByLocal = new Map(mapRows.map(r => [r.local_id, r]))
     const localIds = new Set(items.map(i => i.id))
+    // 映射全空但本地有数据：映射可能被旧版本登出逻辑清空过，先回收远端已有对象防重复创建
+    const remoteIndex = !mapRows.length && items.length ? await this.loadRemoteIndex(token, 'event') : null
 
     for (const event of items) {
       const mapping = mapByLocal.get(event.id)
       const body = this.eventToGraphBody(event)
       try {
         if (!mapping) {
-          const created = await this.graph(token, 'POST', `/me/calendars/${this.calendarId}/events`, body)
-          this.upsertMap('event', event.id, created.id, event.updated_at)
-          result.created++
+          const remoteId = remoteIndex
+            ? this.takeRemote(remoteIndex, event.id, this.remoteKey(event.title, body.start.dateTime))
+            : await this.findEventByLocalId(token, event.id)
+          if (remoteId) {
+            // 命中远端已有对象：PATCH 绑定（顺带补写标记，完成旧数据回填）
+            await this.graph(token, 'PATCH', `/me/events/${remoteId}`, body)
+            this.upsertMap('event', event.id, remoteId, event.updated_at)
+            result.updated++
+          } else {
+            const created = await this.graph(token, 'POST', `/me/calendars/${this.calendarId}/events`, body)
+            this.upsertMap('event', event.id, created.id, event.updated_at)
+            result.created++
+          }
         } else if (event.updated_at > mapping.synced_updated_at) {
           await this.graph(token, 'PATCH', `/me/events/${mapping.remote_id}`, body)
           this.upsertMap('event', event.id, mapping.remote_id, event.updated_at)
@@ -288,6 +407,7 @@ class OutlookSyncService {
       await sleep(150)
     }
 
+    if (remoteIndex) await this.pruneRemote(token, 'event', remoteIndex, result)
     await this.syncDeletions(token, 'event', localIds, mapRows, result)
   }
 
@@ -299,17 +419,28 @@ class OutlookSyncService {
     const mapRows = this.loadMap('todo')
     const mapByLocal = new Map(mapRows.map(r => [r.local_id, r]))
     const localIds = new Set(items.map(i => i.id))
+    const remoteIndex = !mapRows.length && items.length ? await this.loadRemoteIndex(token, 'todo') : null
 
     for (const todo of items) {
       const mapping = mapByLocal.get(todo.id)
-      const body = this.todoToGraphBody(todo, !mapping)
       try {
         if (!mapping) {
-          const created = await this.graph(token, 'POST', `/me/todo/lists/${this.todoListId}/tasks`, body)
-          this.upsertMap('todo', todo.id, created.id, todo.updated_at)
-          result.created++
+          // 待办无远端标记：仅映射全空时按标题+截止时间回收，其余按新对象创建
+          const remoteId = remoteIndex
+            ? this.takeRemote(remoteIndex, todo.id, this.remoteKey(todo.title, todo.due_at ? this.toGraphDateTime(todo.due_at, todo.tzid).dateTime : undefined))
+            : undefined
+          if (remoteId) {
+            // 命中已有远端任务：按 PATCH 体回写绑定（规避 To-Do range.startDate 的 Edm.Date bug）
+            await this.graph(token, 'PATCH', `/me/todo/lists/${this.todoListId}/tasks/${remoteId}`, this.todoToGraphBody(todo, false))
+            this.upsertMap('todo', todo.id, remoteId, todo.updated_at)
+            result.updated++
+          } else {
+            const created = await this.graph(token, 'POST', `/me/todo/lists/${this.todoListId}/tasks`, this.todoToGraphBody(todo))
+            this.upsertMap('todo', todo.id, created.id, todo.updated_at)
+            result.created++
+          }
         } else if (todo.updated_at > mapping.synced_updated_at) {
-          await this.graph(token, 'PATCH', `/me/todo/lists/${this.todoListId}/tasks/${mapping.remote_id}`, body)
+          await this.graph(token, 'PATCH', `/me/todo/lists/${this.todoListId}/tasks/${mapping.remote_id}`, this.todoToGraphBody(todo, false))
           this.upsertMap('todo', todo.id, mapping.remote_id, todo.updated_at)
           result.updated++
         }
@@ -320,6 +451,7 @@ class OutlookSyncService {
       await sleep(150)
     }
 
+    if (remoteIndex) await this.pruneRemote(token, 'todo', remoteIndex, result)
     await this.syncDeletions(token, 'todo', localIds, mapRows, result)
   }
 
@@ -344,6 +476,86 @@ class OutlookSyncService {
 
   private pushError(result: OutlookSyncResult, msg: string): void {
     if (result.errors.length < 5) result.errors.push(msg)
+  }
+
+  // ====== 映射回收 ======
+
+  /** 去重键：标题 + 日期 + 时间（兼容全天事件的纯日期与 Graph 返回的毫秒尾巴） */
+  private remoteKey(title: string, dateTime?: string): string {
+    const dt = dateTime || ''
+    return `${title}\u0000${dt.slice(0, 10)}\u0000${dt.slice(11, 19) || '00:00:00'}`
+  }
+
+  /** 分页拉取目标日历/列表的全部远端对象；事件带标记的进 byMarker，待办（无标记支持）全部进 byFuzzy 兜底 */
+  private async loadRemoteIndex(token: string, type: 'event' | 'todo'): Promise<RemoteIndex> {
+    const idx: RemoteIndex = { objs: [], byMarker: new Map(), byFuzzy: new Map() }
+    let path: string | null = type === 'event'
+      // todoTask 无 singleValueExtendedProperties 导航属性（$expand 会报 400），不能带 expand
+      ? `/me/calendars/${this.calendarId}/events?$select=id,subject,start,categories&$expand=singleValueExtendedProperties($filter=id eq '${LOCAL_ID_PROP}')`
+      : `/me/todo/lists/${this.todoListId}/tasks`
+    while (path) {
+      const json = await this.graph(token, 'GET', path)
+      for (const item of json?.value || []) {
+        // 事件仅纳入本插件推送过的（带 WorkAvatar 分类），避免误伤日历里手工创建的日程
+        if (type === 'event' && !(item.categories || []).includes(TARGET_NAME)) continue
+        const title = type === 'event' ? item.subject || '' : item.title || ''
+        const dt = type === 'event' ? item.start?.dateTime : item.dueDateTime?.dateTime
+        const obj: RemoteObj = {
+          id: item.id,
+          localId: item.singleValueExtendedProperties?.[0]?.value || undefined,
+          key: this.remoteKey(title, dt),
+          used: false,
+        }
+        idx.objs.push(obj)
+        if (obj.localId) this.pushTo(idx.byMarker, obj.localId, obj)
+        else this.pushTo(idx.byFuzzy, obj.key, obj)
+      }
+      const next: string | undefined = json?.['@odata.nextLink']
+      path = next?.startsWith(GRAPH_BASE) ? next.slice(GRAPH_BASE.length) : null
+    }
+    return idx
+  }
+
+  private pushTo(map: Map<string, RemoteObj[]>, key: string, obj: RemoteObj): void {
+    const arr = map.get(key)
+    if (arr) arr.push(obj)
+    else map.set(key, [obj])
+  }
+
+  /** 取可绑定的远端对象：先按标记精确匹配，再按去重键模糊匹配（fuzzyKey 省略则只认标记） */
+  private takeRemote(idx: RemoteIndex, localId: string, fuzzyKey?: string): string | undefined {
+    const pick = (arr?: RemoteObj[]) => {
+      const hit = arr?.find(o => !o.used)
+      if (hit) hit.used = true
+      return hit
+    }
+    return pick(idx.byMarker.get(localId))?.id ?? pick(fuzzyKey ? idx.byFuzzy.get(fuzzyKey) : undefined)?.id
+  }
+
+  /** 映射未空时按标记精确找回单个远端事件（To Do 不支持服务端过滤，走 loadRemoteIndex 客户端匹配） */
+  private async findEventByLocalId(token: string, localId: string): Promise<string | null> {
+    const escaped = localId.replace(/'/g, "''")
+    const filter = encodeURIComponent(`singleValueExtendedProperties/any(ep: ep/id eq '${LOCAL_ID_PROP}' and ep/value eq '${escaped}')`)
+    const json = await this.graph(token, 'GET', `/me/calendars/${this.calendarId}/events?$filter=${filter}&$select=id`)
+    return json?.value?.[0]?.id ?? null
+  }
+
+  /** 回收后清理远端残留：未匹配到本地对象的副本（重复项 / 本地已删除） */
+  private async pruneRemote(token: string, type: 'event' | 'todo', idx: RemoteIndex, result: OutlookSyncResult): Promise<void> {
+    for (const obj of idx.objs) {
+      if (obj.used) continue
+      try {
+        const path = type === 'event'
+          ? `/me/events/${obj.id}`
+          : `/me/todo/lists/${this.todoListId}/tasks/${obj.id}`
+        await this.graph(token, 'DELETE', path)
+        result.deleted++
+      } catch (err: any) {
+        result.failed++
+        this.pushError(result, `清理远端${type === 'event' ? '事件' : '待办'}: ${err?.message || err}`)
+      }
+      await sleep(150)
+    }
   }
 
   // ====== 映射表操作 ======
@@ -458,6 +670,7 @@ class OutlookSyncService {
       end,
       isAllDay: event.all_day,
       categories: [TARGET_NAME],
+      singleValueExtendedProperties: [{ id: LOCAL_ID_PROP, value: event.id }],
       ...this.reminderToGraph(event.reminders),
     }
     const recurrence = event.recurrence_rule ? this.ruleToGraphRecurrence(event.recurrence_rule, event.start_at, tz) : undefined

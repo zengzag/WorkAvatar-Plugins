@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import {
-  Drawer, Tabs, Switch, Select, Card, Divider, theme, App, Button, Space, Tag, Tooltip,
+  Drawer, Tabs, Switch, Select, Card, Divider, theme, App, Button, Space, Tag, Tooltip, Popconfirm,
 } from 'antd'
 import {
   BellOutlined, NotificationOutlined, CloudSyncOutlined, LoginOutlined, LogoutOutlined, SyncOutlined,
-  ExportOutlined, ImportOutlined, DatabaseOutlined,
+  ExportOutlined, ImportOutlined, DatabaseOutlined, DeleteOutlined,
 } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { cal } from '../store'
@@ -45,6 +45,7 @@ const CalendarSettingsDrawer: React.FC<CalendarSettingsDrawerProps> = ({
   const [outlook, setOutlook] = useState<OutlookSyncStatus | null>(null)
   const [loginLoading, setLoginLoading] = useState(false)
   const [syncLoading, setSyncLoading] = useState(false)
+  const [resetLoading, setResetLoading] = useState(false)
 
   useEffect(() => {
     if (open) {
@@ -122,6 +123,25 @@ const CalendarSettingsDrawer: React.FC<CalendarSettingsDrawerProps> = ({
   }, [message, t])
 
   const [dataLoading, setDataLoading] = useState(false)
+
+  const handleClearRemote = useCallback(async () => {
+    setResetLoading(true)
+    try {
+      const result = await cal.outlook.clearRemote()
+      if (result?.error) {
+        message.error(result.error)
+      } else if (result) {
+        const status = result as OutlookSyncStatus
+        setOutlook(status)
+        if (status.last_error) message.error(status.last_error)
+        else message.success(t('calendar.outlookClearRemoteDone'))
+      }
+    } catch (err: any) {
+      message.error(err?.message || t('calendar.outlookClearRemoteFailed'))
+    } finally {
+      setResetLoading(false)
+    }
+  }, [message, t])
 
   const handleExport = useCallback(async () => {
     setDataLoading(true)
@@ -381,6 +401,35 @@ const CalendarSettingsDrawer: React.FC<CalendarSettingsDrawerProps> = ({
                 >
                   {t('calendar.outlookSyncNowButton')}
                 </Button>
+              </Tooltip>
+            }
+          />
+        </Card>
+
+        <Card size="small" style={cardStyle}>
+          <SettingsItem
+            title={t('calendar.outlookClearRemote')}
+            description={t('calendar.outlookClearRemoteHint')}
+            extra={
+              <Tooltip title={!signedIn ? t('calendar.outlookSignInFirst') : ''}>
+                <Popconfirm
+                  title={t('calendar.outlookClearRemoteConfirmTitle')}
+                  description={t('calendar.outlookClearRemoteConfirmDesc')}
+                  okText={t('common.confirm')}
+                  cancelText={t('common.cancel')}
+                  okButtonProps={{ danger: true }}
+                  onConfirm={handleClearRemote}
+                >
+                  <Button
+                    size="small"
+                    danger
+                    icon={<DeleteOutlined />}
+                    disabled={!signedIn}
+                    loading={syncing || resetLoading}
+                  >
+                    {t('calendar.outlookClearRemoteButton')}
+                  </Button>
+                </Popconfirm>
               </Tooltip>
             }
           />

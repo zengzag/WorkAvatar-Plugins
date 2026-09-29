@@ -122,6 +122,7 @@ export const cal = {
     setConfig: (partial: Partial<OutlookSyncStatus['config']>) =>
       invoke<ResultWithError<OutlookSyncStatus>>('outlook-set-config', partial),
     syncNow: () => invoke<ResultWithError<OutlookSyncStatus>>('outlook-sync-now'),
+    clearRemote: () => invoke<ResultWithError<OutlookSyncStatus>>('outlook-clear-remote'),
   },
 
   // 事件订阅（返回取消订阅函数）

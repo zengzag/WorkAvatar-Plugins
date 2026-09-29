@@ -236,4 +236,8 @@ function registerIpc(ctx: PluginContext): void {
   ctx.ipc.handle('outlook-sync-now', async () => {
     return sync.syncNow()
   })
+
+  ctx.ipc.handle('outlook-clear-remote', async () => {
+    return sync.clearRemoteAndResync()
+  })
 }
