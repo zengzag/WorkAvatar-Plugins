@@ -48,10 +48,23 @@ describe('workflow 插件 activate', () => {
     activateWithMigrations(mod, mock)
     const channels = [
       'template-list', 'template-get', 'template-save', 'template-delete', 'template-duplicate',
-      'run-start', 'run-get', 'run-list', 'run-abort', 'employee-options',
+      'run-start', 'run-get', 'run-list', 'run-abort', 'run-delete',
+      'run-open-artifact', 'run-reveal-artifact',
+      'employee-options',
     ]
     for (const c of channels) expect(mock.ipc.handlers.has(c)).toBe(true)
     expect(mock.ipc.handlers.size).toBe(channels.length)
+  })
+
+  it('打开产物 IPC 做安全校验：缺参数 / 运行不存在均拒绝', async () => {
+    const mod = await loadPlugin()
+    activateWithMigrations(mod, mock)
+    const open = mock.ipc.handlers.get('run-open-artifact')!
+    const reveal = mock.ipc.handlers.get('run-reveal-artifact')!
+    expect(await open({})).toEqual({ ok: false, error: 'params_required' })
+    expect(await reveal({ runId: 'r1' })).toEqual({ ok: false, error: 'params_required' })
+    // mock 未注入 services.workflow，getRun 为空 → 运行不存在
+    expect(await open({ runId: 'r1', path: 'C:/x.txt' })).toEqual({ ok: false, error: 'run_not_found' })
   })
 
   it('manifest.ipc 声明的通道与实际注册的完全一致', async () => {
@@ -77,6 +90,7 @@ describe('workflow 插件 activate', () => {
       'workflow_update_node',
       'workflow_delete_node',
       'workflow_validate_template',
+      'workflow_run_template',
       'workflow_delete_template',
     ])
   })
@@ -219,5 +233,30 @@ describe('workflow 插件 IPC / 模板 CRUD', () => {
     const res = (await runStart({ templateId: saved.template.id })) as { error?: string }
     expect(res.error).toContain('缺少角色')
     expect(res.error).toContain('缺少任务指令')
+  })
+})
+
+describe('workflow 插件 / 模板变更广播', () => {
+  it('IPC 写操作与 agent 工具写操作都会广播 templates-changed', async () => {
+    const mock = createMockContext('workflow')
+    const mod = await loadPlugin()
+    activateWithMigrations(mod, mock)
+
+    const save = mock.ipc.handlers.get('template-save')!
+    mock.ipc.broadcasts.length = 0
+    await save({ name: 'A', graph: { nodes: [], edges: [] } })
+    expect(mock.ipc.broadcasts.filter(b => b.event === 'templates-changed')).toHaveLength(1)
+
+    // LLM 在其它页/窗口经 agent 工具创建模板，同样必须广播（否则已挂载的模板库看不到）
+    const createTool = mock.contributions.agentTools.find(t => t.id === 'workflow_create_template')!
+    mock.ipc.broadcasts.length = 0
+    await createTool.handler({ name: 'B' }, {})
+    expect(mock.ipc.broadcasts.filter(b => b.event === 'templates-changed')).toHaveLength(1)
+
+    const deleteTool = mock.contributions.agentTools.find(t => t.id === 'workflow_delete_template')!
+    mock.ipc.broadcasts.length = 0
+    await deleteTool.handler({ templateId: 'ghost' }, {})
+    // 删除不存在的模板不触发广播（未产生实际变更）
+    expect(mock.ipc.broadcasts).toHaveLength(0)
   })
 })

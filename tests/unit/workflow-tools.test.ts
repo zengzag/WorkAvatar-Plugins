@@ -65,6 +65,7 @@ describe('workflow agent tools / 工具集完备性', () => {
       'workflow_update_node',
       'workflow_delete_node',
       'workflow_validate_template',
+      'workflow_run_template',
       'workflow_delete_template',
     ])
   })
@@ -557,5 +558,114 @@ describe('workflow agent tools / 列表与删除', () => {
       expect(res.success).toBe(false)
       expect(String(res.error)).toContain('模板不存在')
     }
+  })
+})
+
+describe('workflow agent tools / 运行入参默认值与直接运行', () => {
+  /** 内存运行记录：捕获传给 runTemplate 的模板与入参 */
+  type RunCall = { templateId: string; variables: Record<string, string> }
+
+  function createRunHarness() {
+    const store = createStore()
+    const runCalls: RunCall[] = []
+    let seq = 0
+    const tools = createWorkflowTools({
+      ...store,
+      runTemplate: async (template, variables) => {
+        runCalls.push({ templateId: template.id, variables })
+        return {
+          run: {
+            runId: `run-${++seq}`,
+            templateId: template.id,
+            conversationId: `conv-${seq}`,
+            status: 'running',
+            nodes: template.graph.nodes.map(n => ({ nodeId: n.id, label: n.data.label, type: n.type, status: 'pending' as const })),
+            artifacts: [],
+          },
+        }
+      },
+    })
+    const call = async (name: string, args: Record<string, unknown> = {}) => {
+      const tool = tools.find(item => item.id === name)
+      if (!tool) throw new Error(`工具不存在: ${name}`)
+      return await tool.handler(args, {}) as Record<string, unknown>
+    }
+    return { store, runCalls, call }
+  }
+
+  /** 搭一个可运行的最小模板：input → end（结构合法，无需角色） */
+  async function buildRunnable(call: (name: string, args?: Record<string, unknown>) => Promise<Record<string, unknown>>, opts?: { withDefault?: boolean }) {
+    const created = await call('workflow_create_template', {
+      name: '运行测试',
+      variables: opts?.withDefault
+        ? [{ name: '主题', description: '要写的主题' }, { name: '字数', defaultValue: '800' }, { name: '' }]
+        : [{ name: '主题' }],
+    })
+    const templateId = created.templateId as string
+    await call('workflow_add_node', { templateId, type: 'input', label: '输入' })
+    await call('workflow_add_node', { templateId, type: 'end', label: '结束' })
+    await call('workflow_add_edge', { templateId, sourceId: 'node1', targetId: 'node2' })
+    return templateId
+  }
+
+  it('create 保留入参默认值并丢弃空名行', async () => {
+    const { call } = createRunHarness()
+    const templateId = await buildRunnable(call, { withDefault: true })
+    const detail = await call('workflow_get_template', { templateId })
+    const template = detail.template as WorkflowTemplate
+    expect(template.variables).toEqual([
+      { name: '主题', description: '要写的主题' },
+      { name: '字数', defaultValue: '800' },
+    ])
+  })
+
+  it('启动运行并返回 runId/conversationId，入参原样透传', async () => {
+    const { runCalls, call } = createRunHarness()
+    const templateId = await buildRunnable(call)
+    const res = await call('workflow_run_template', { templateId, variables: { 主题: '季度总结' } })
+    expect(res.success).toBe(true)
+    expect(res.runId).toBe('run-1')
+    expect(res.conversationId).toBe('conv-1')
+    expect(res.nodeCount).toBe(2)
+    expect(runCalls).toEqual([{ templateId, variables: { 主题: '季度总结' } }])
+  })
+
+  it('缺必填入参被拒绝；有默认值的入参可留空并用默认值补齐', async () => {
+    const { runCalls, call } = createRunHarness()
+    const templateId = await buildRunnable(call, { withDefault: true })
+
+    const blocked = await call('workflow_run_template', { templateId })
+    expect(blocked.success).toBe(false)
+    expect(String(blocked.error)).toContain('主题')
+    expect(runCalls).toHaveLength(0)
+
+    const ok = await call('workflow_run_template', { templateId, variables: { 主题: '周报' } })
+    expect(ok.success).toBe(true)
+    expect(runCalls[0].variables).toEqual({ 主题: '周报', 字数: '800' })
+  })
+
+  it('结构有问题的模板不会启动运行', async () => {
+    const { runCalls, call } = createRunHarness()
+    const created = await call('workflow_create_template', { name: '坏模板' })
+    const templateId = created.templateId as string
+    await call('workflow_add_node', { templateId, type: 'agent', label: '缺角色的节点' })
+
+    const res = await call('workflow_run_template', { templateId })
+    expect(res.success).toBe(false)
+    expect(String(res.error)).toContain('无法运行')
+    expect(runCalls).toHaveLength(0)
+  })
+
+  it('未注入运行能力时返回可读 error', async () => {
+    const { call } = toolsFor(createStore())
+    const created = await call('workflow_create_template', { name: 'T' })
+    const templateId = created.templateId as string
+    await call('workflow_add_node', { templateId, type: 'input', label: 'I' })
+    await call('workflow_add_node', { templateId, type: 'end', label: 'E' })
+    await call('workflow_add_edge', { templateId, sourceId: 'node1', targetId: 'node2' })
+
+    const res = await call('workflow_run_template', { templateId })
+    expect(res.success).toBe(false)
+    expect(String(res.error)).toContain('不支持直接运行')
   })
 })

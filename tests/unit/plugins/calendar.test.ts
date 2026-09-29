@@ -40,18 +40,18 @@ describe('calendar 插件 activate', () => {
     mock = createMockContext('calendar')
   })
 
-  it('注册 23 个 IPC handler', async () => {
+  it('注册 24 个 IPC handler', async () => {
     const mod = await loadPlugin()
     mod.activate(mock.ctx)
     const channels = ['list-events', 'create-event', 'update-event', 'update-event-instance', 'delete-event', 'delete-event-instance',
       'list-todos', 'list-todo-instances', 'create-todo', 'update-todo', 'delete-todo', 'delete-todo-instance', 'complete-todo', 'todo-stats',
       'get-settings', 'set-settings',
       'export-data', 'import-data',
-      'outlook-login', 'outlook-logout', 'outlook-status', 'outlook-set-config', 'outlook-sync-now']
+      'outlook-login', 'outlook-logout', 'outlook-status', 'outlook-set-config', 'outlook-sync-now', 'outlook-clear-remote']
     for (const c of channels) {
       expect(mock.ipc.handlers.has(c)).toBe(true)
     }
-    expect(mock.ipc.handlers.size).toBe(23)
+    expect(mock.ipc.handlers.size).toBe(24)
   })
 
   it('注册 10 个 agent 工具', async () => {
