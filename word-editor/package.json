@@ -1,6 +1,6 @@
 {
   "name": "workavatar-plugin-word-editor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Word 文档编辑器插件依赖声明",
   "dependencies": {

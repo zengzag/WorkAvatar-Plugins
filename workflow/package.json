@@ -1,6 +1,6 @@
 {
   "name": "workavatar-plugin-workflow",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "模板任务插件：画布搭建复杂任务流程（撰写/评审/条件/循环），编排数字员工与模板内联临时角色，驱动宿主流程编排引擎逐节点执行。",
   "type": "module",
