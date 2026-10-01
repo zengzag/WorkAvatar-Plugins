@@ -317,7 +317,13 @@ export function activate(ctx: PluginContext): void {
   })
   ctx.ipc.handle('run-delete', async (payload: unknown) => {
     const runId = String((payload as { runId?: string })?.runId ?? '')
-    const ok = (await ctx.services.workflow?.deleteRun(runId)) ?? false
+    const result = (await ctx.services.workflow?.deleteRun(runId)) ?? { ok: false }
+    return result
+  })
+  ctx.ipc.handle('run-delete-workspace', async (payload: unknown) => {
+    const path = String((payload as { path?: string })?.path ?? '')
+    if (!path) return { ok: false }
+    const ok = (await ctx.services.workflow?.deleteRunWorkspace(path)) ?? false
     return { ok }
   })
 

@@ -1,6 +1,6 @@
 /** 模板任务渲染端状态（zustand，与宿主共享实例） */
 import { create } from 'zustand'
-import type { PluginWorkflowArtifact, PluginWorkflowNodeEvent, PluginWorkflowNodeRun, PluginWorkflowRun, PluginWorkflowRunEvent } from '@workavatar/plugin-sdk'
+import type { PluginWorkflowArtifact, PluginWorkflowDeleteRunResult, PluginWorkflowNodeEvent, PluginWorkflowNodeRun, PluginWorkflowRun, PluginWorkflowRunEvent } from '@workavatar/plugin-sdk'
 import type { WorkflowTemplate } from '../shared/types'
 import { invoke } from './host'
 
@@ -25,8 +25,8 @@ interface WorkflowState {
   /** 打开运行详情抽屉（拉取全量数据） */
   openRunDetail: (runId: string) => void
   closeRunDetail: () => void
-  /** 删除运行记录（IPC）；成功后从各视图移除并返回 true */
-  deleteRun: (runId: string) => Promise<boolean>
+  /** 删除运行记录（IPC）；成功后从各视图移除，返回结果（含工作目录信息供二次确认） */
+  deleteRun: (runId: string) => Promise<PluginWorkflowDeleteRunResult>
   /** 统一处理运行事件：轻量状态先上屏，其余事件全量拉取 */
   handleRunEvent: (event: PluginWorkflowRunEvent) => void
 }
@@ -120,17 +120,17 @@ export const useWorkflowStore = create<WorkflowState>((set) => {
 
     deleteRun: async (runId) => {
       try {
-        const res = await invoke<{ ok?: boolean }>('run-delete', { runId })
-        if (!res?.ok) return false
+        const res = await invoke<PluginWorkflowDeleteRunResult>('run-delete', { runId })
+        if (!res?.ok) return { ok: false }
         set((s) => ({
           runs: s.runs.filter((r) => r.runId !== runId),
           activeRun: s.activeRun?.runId === runId ? null : s.activeRun,
           detailRunId: s.detailRunId === runId ? null : s.detailRunId,
           detailRun: s.detailRun?.runId === runId ? null : s.detailRun,
         }))
-        return true
+        return res
       } catch {
-        return false
+        return { ok: false }
       }
     },
 

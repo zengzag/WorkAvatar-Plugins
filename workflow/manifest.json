@@ -19,6 +19,7 @@
     "run-list",
     "run-abort",
     "run-delete",
+    "run-delete-workspace",
     "run-open-artifact",
     "run-reveal-artifact",
     "employee-options"

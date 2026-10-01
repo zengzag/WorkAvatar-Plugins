@@ -48,7 +48,7 @@ describe('workflow 插件 activate', () => {
     activateWithMigrations(mod, mock)
     const channels = [
       'template-list', 'template-get', 'template-save', 'template-delete', 'template-duplicate',
-      'run-start', 'run-get', 'run-list', 'run-abort', 'run-delete',
+      'run-start', 'run-get', 'run-list', 'run-abort', 'run-delete', 'run-delete-workspace',
       'run-open-artifact', 'run-reveal-artifact',
       'employee-options',
     ]

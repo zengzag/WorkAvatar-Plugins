@@ -1,6 +1,6 @@
 /** 运行详情：统计概要 + 运行入参 + 节点执行时间线（含 LLM/工具 transcript）+ 结果 + 产物 */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { Alert, Button, Drawer, Popconfirm, Progress, Space, Spin, Tag, Tooltip, Typography, message, theme } from 'antd'
+import { Alert, App, Button, Drawer, Popconfirm, Progress, Space, Spin, Tag, Tooltip, Typography, message, theme } from 'antd'
 import {
   ApartmentOutlined,
   ClockCircleOutlined,
@@ -349,6 +349,7 @@ export function RunBody({ run, actions }: { run: PluginWorkflowRun; actions?: Re
 
 /** 运行详情抽屉：从运行历史点入，展示完整执行过程并支持中止 / 删除 */
 export function RunDetailDrawer() {
+  const { modal } = App.useApp()
   const runId = useWorkflowStore((s) => s.detailRunId)
   const run = useWorkflowStore((s) => s.detailRun)
   const closeRunDetail = useWorkflowStore((s) => s.closeRunDetail)
@@ -356,8 +357,24 @@ export function RunDetailDrawer() {
 
   const remove = async () => {
     if (!run) return
-    if (await deleteRun(run.runId)) message.success(t('run.deleted'))
-    else message.warning(t('run.deleteRunning'))
+    const res = await deleteRun(run.runId)
+    if (!res.ok) {
+      message.warning(t('run.deleteRunning'))
+      return
+    }
+    message.success(t('run.deleted'))
+    // 工作区目录非空时，与普通任务一致地询问是否一并删除
+    if (res.taskDirNonEmpty && res.taskDir) {
+      const dir = res.taskDir
+      modal.confirm({
+        title: t('run.deleteDirTitle'),
+        content: t('run.deleteDirContent', { path: dir }),
+        okText: t('run.deleteDirOk'),
+        cancelText: t('run.deleteDirCancel'),
+        okButtonProps: { danger: true },
+        onOk: () => invoke('run-delete-workspace', { path: dir }),
+      })
+    }
   }
 
   const abort = () => {

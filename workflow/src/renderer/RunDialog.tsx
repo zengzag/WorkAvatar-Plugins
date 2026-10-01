@@ -1,6 +1,6 @@
 /** 运行模板任务：填写入参并启动，随后展示执行过程；含运行历史抽屉 */
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Drawer, Empty, Form, Input, Modal, Popconfirm, Space, Spin, Tag, Tooltip, Typography, message, theme } from 'antd'
+import { Alert, App, Button, Drawer, Empty, Form, Input, Modal, Popconfirm, Space, Spin, Tag, Tooltip, Typography, message, theme } from 'antd'
 import { DeleteOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 import type { PluginWorkflowRun } from '@workavatar/plugin-sdk'
 import { invoke, t } from './host'
@@ -143,6 +143,7 @@ export function RunDialog({ template, onClose }: Props) {
 /** 运行历史抽屉：状态 / 时间 / 耗时 / 进度 / 失败原因，点入详情，可删除记录 */
 export function RunHistoryDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { token } = theme.useToken()
+  const { modal } = App.useApp()
   const runs = useWorkflowStore(s => s.runs)
   const setRuns = useWorkflowStore(s => s.setRuns)
   const openRunDetail = useWorkflowStore(s => s.openRunDetail)
@@ -160,8 +161,24 @@ export function RunHistoryDrawer({ open, onClose }: { open: boolean; onClose: ()
   }, [open, setRuns])
 
   const remove = async (run: PluginWorkflowRun) => {
-    if (await deleteRun(run.runId)) message.success(t('run.deleted'))
-    else message.warning(t('run.deleteRunning'))
+    const res = await deleteRun(run.runId)
+    if (!res.ok) {
+      message.warning(t('run.deleteRunning'))
+      return
+    }
+    message.success(t('run.deleted'))
+    // 工作区目录非空时，与普通任务一致地询问是否一并删除
+    if (res.taskDirNonEmpty && res.taskDir) {
+      const dir = res.taskDir
+      modal.confirm({
+        title: t('run.deleteDirTitle'),
+        content: t('run.deleteDirContent', { path: dir }),
+        okText: t('run.deleteDirOk'),
+        cancelText: t('run.deleteDirCancel'),
+        okButtonProps: { danger: true },
+        onOk: () => invoke('run-delete-workspace', { path: dir }),
+      })
+    }
   }
 
   return (
