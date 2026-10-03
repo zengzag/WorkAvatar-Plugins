@@ -266,3 +266,68 @@ describe('automation 插件 IPC 边界 case', () => {
     expect(res.count).toBe(0)
   })
 })
+
+describe('automation 竞态保护（旧 executor 终态 CAS）', () => {
+  let mock: ReturnType<typeof createMockContext>
+  let service: any
+
+  beforeEach(async () => {
+    mock = createMockContext('automation')
+    const mod = await loadPlugin()
+    mod.activate(mock.ctx)
+    const svcMod = await import('../../../automation/src/main/automation-service')
+    service = svcMod.getAutomationService(mock.ctx)
+    // conversation 桥 mock：create 返回固定 id（executeOnce 需 conv.id 落库），其余直通
+    ;(mock.services.data!.mutate as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_entity: unknown, op?: string) => (op === 'create' ? { id: 'conv-race-1' } : {}),
+    )
+  })
+
+  function createRaceTask() {
+    return service.createTask({
+      title: '竞态任务',
+      prompt: 'p',
+      employee_id: 'emp-1',
+      provider_id: 'prov-1',
+      start_at: Math.floor(Date.now() / 1000),
+    } as Parameters<typeof service.createTask>[0]) as { id: string }
+  }
+
+  it('执行窗口内被 recoverOrphanRuns 置 failed：成功分支不覆盖 status、不重发通知', async () => {
+    const task = createRaceTask()
+    ;(mock.services.execute!.execute as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_req: unknown, callbacks?: { onChunk?: (s: string) => void }) => {
+        // 模拟重启恢复在执行窗口内抢先清理孤儿 run
+        await service.recoverOrphanRuns()
+        callbacks?.onChunk?.('ok')
+        return {} as never
+      },
+    )
+    const res = await mock.ipc.handlers.get('run-now')!({ id: task.id })
+    // 终态 CAS 失败：executor 认输返回 null
+    expect(res).toBeNull()
+    const runs = service.listRuns({ task_id: task.id }) as Array<{ status: string; error_message?: string }>
+    expect(runs).toHaveLength(1)
+    expect(runs[0].status).toBe('failed')
+    expect(runs[0].error_message).toBe('orphan recovered on startup')
+    expect(service.getTask(task.id).last_status).toBe('failed')
+    expect(mock.services.notification.notify).not.toHaveBeenCalled()
+  })
+
+  it('执行窗口内被 recoverOrphanRuns 置 failed：失败分支不重复覆盖、不进入重试', async () => {
+    const task = createRaceTask()
+    ;(mock.services.execute!.execute as ReturnType<typeof vi.fn>).mockImplementation(
+      async () => {
+        await service.recoverOrphanRuns()
+        return {} as never
+      },
+    )
+    const res = await mock.ipc.handlers.get('run-now')!({ id: task.id })
+    expect(res).toBeNull()
+    const runs = service.listRuns({ task_id: task.id }) as Array<{ status: string; error_message?: string }>
+    expect(runs[0].status).toBe('failed')
+    // 保持恢复侧错误信息，未被 executor 失败文案覆盖
+    expect(runs[0].error_message).toBe('orphan recovered on startup')
+  })
+})
+

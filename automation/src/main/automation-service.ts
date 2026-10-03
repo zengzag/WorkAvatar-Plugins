@@ -669,7 +669,7 @@ class AutomationService {
     return await this.executeOnce(task, triggeredBy, 0)
   }
 
-  private async executeOnce(task: AutomationTask, triggeredBy: AutomationTriggeredBy, attempt: number): Promise<AutomationRun> {
+  private async executeOnce(task: AutomationTask, triggeredBy: AutomationTriggeredBy, attempt: number): Promise<AutomationRun | null> {
     const now = Math.floor(Date.now() / 1000)
     const titleTime = this.formatRunTitleTime(now)
     const convTitle = this.ctx.services.i18n.t('automation.runConversationTitle', { title: task.title, time: titleTime })
@@ -680,8 +680,9 @@ class AutomationService {
     let willDisable = false
 
     try {
-      // manual 触发同样重算 next_run_at：沿用旧值时，已过期（任务停用期间错过）的
-      // next_run_at 会让下个调度 tick 立刻重复执行一次
+      // manual 触发统一重算 next_run_at：沿用旧值时，已过期的 next_run_at 会让下个
+      // 调度 tick 立刻重复执行一次；同理，下方 initialize 失败只恢复任务态、
+      // 不写任务行（无事故时的补偿双发），重算后的未来值即唯一排程
       nextRunAt = this.computeNextRunAfter(task.recurrence_rule, task.start_at, now, now)
       willDisable = !task.recurrence_rule && (nextRunAt === null || (task.next_run_at !== null && task.next_run_at <= now))
       if (task.recurrence_rule?.count && task.recurrence_rule.count > 0) {
@@ -732,12 +733,25 @@ class AutomationService {
         try { this.deleteConversation(conv.id) } catch { /* ignore */ }
       }
       // 初始化失败必须恢复任务状态：runTask 已 CAS 置 running，若无路径恢复，
-      // listDueTaskIds 会永久跳过该任务（直到重启时 recoverOrphanRuns 兜底）
+      // listDueTaskIds 会永久跳过该任务（直到重启时 recoverOrphanRuns 兜底）。
+      // 恢复为 failed 而非 idle：调度器每 tick 都会捞到 failed 任务，退避即重试间隔，
+      // 并靠 runTask 的 CAS 兜底防与 restartExecute 的"新饭"互踩重发
       try {
         this.db.prepare(
           `UPDATE automation_tasks SET last_status = 'failed', last_error = ?, updated_at = ? WHERE id = ?`
         ).run(String(initErr?.message || initErr).slice(0, 500), Math.floor(Date.now() / 1000), task.id)
       } catch { /* ignore */ }
+      // initialize 失败时插件库可能尚未写入本 run（run 行在 conversation 桥成功后
+      // 才插入），conversation 已建但 run 未插库是已知可恢复中间态，告警便于排查
+      if (this.db.prepare(`SELECT 1 FROM automation_runs WHERE id = ?`).get(runId)) {
+        this.ctx.services.logger.warn(
+          `Task ${task.id} init failed with orphan run row ${runId} (no conversation); recovered as failed`
+        )
+      } else {
+        this.ctx.services.logger.warn(
+          `Task ${task.id} initialized conversation but aborted before inserting run row; next_run_at already advanced to ${nextRunAt ?? 'null'}`
+        )
+      }
       throw initErr
     }
 
@@ -783,6 +797,11 @@ class AutomationService {
     const finishedAt = Math.floor(Date.now() / 1000)
     const durationMs = Date.now() - startMs
     const success = !errorMsg && assistantContent.trim().length > 0
+    // 终态前 CAS 失败（run 已被恢复或接管）：保留胜者状态并退出静默收尾
+    const superseded = (): AutomationRun | null => {
+      this.ctx.services.logger.warn(`Run ${runId} no longer owned by this executor, skip finalizing`)
+      return null
+    }
 
     try {
       if (success) {
@@ -803,12 +822,19 @@ class AutomationService {
           message_count: finalMessages.length,
           last_message_at: finishedAt,
         })
+        // 重启恢复（recoverOrphanRuns）可能已把本 run 标为 failed 或删除其 conversation，
+        // 较新的同任务实例也可能已把它覆盖为终态——写终态前先 CAS 确认仍归属本
+        // executor，0 行即放弃（本实例认输，不回写 success/failed 以免覆盖竞态胜者）
+        const claimRun = this.db.prepare(
+          `UPDATE automation_runs SET status = 'running' WHERE id = ? AND status = 'running'`
+        ).run(runId)
+        if (claimRun.changes === 0) return superseded()
         const tx = this.db.transaction(() => {
           this.db.prepare(
             `UPDATE automation_runs SET status = 'success', finished_at = ?, duration_ms = ?, error_message = NULL WHERE id = ?`
           ).run(finishedAt, durationMs, runId)
           this.db.prepare(
-            `UPDATE automation_tasks SET last_status = 'success', last_error = NULL, updated_at = ? WHERE id = ?`
+            `UPDATE automation_tasks SET last_status = 'success', last_error = NULL, updated_at = ? WHERE id = ? AND last_status = 'running'`
           ).run(finishedAt, task.id)
         })
         tx()
@@ -823,22 +849,24 @@ class AutomationService {
 
       const shouldRetry = attempt < task.retry_count && attempt < MAX_RETRY_ATTEMPTS
 
-      const tx = this.db.transaction(() => {
-        this.db.prepare(
-          `UPDATE automation_runs SET status = 'failed', finished_at = ?, duration_ms = ?, error_message = ? WHERE id = ?`
+      const claimed = this.db.transaction(() => {
+        // 与 success 分支同一 CAS：行已非 running（被恢复/被新实例终态化）则不再写失败终态
+        const claimRun = this.db.prepare(
+          `UPDATE automation_runs SET status = 'failed', finished_at = ?, duration_ms = ?, error_message = ? WHERE id = ? AND status = 'running'`
         ).run(finishedAt, durationMs, errorMsg || 'Unknown error', runId)
+        if (claimRun.changes === 0) return false
 
         const taskError = shouldRetry
           ? `Attempt ${attempt + 1} failed: ${errorMsg || 'Unknown error'}, retrying...`
           : (errorMsg || 'Unknown error')
         this.db.prepare(
-          `UPDATE automation_tasks SET last_status = 'failed', last_error = ?, updated_at = ? WHERE id = ?`
+          `UPDATE automation_tasks SET last_status = 'failed', last_error = ?, updated_at = ? WHERE id = ? AND last_status = 'running'`
         ).run(taskError, finishedAt, task.id)
-      })
-      tx()
+        return true
+      })()
+      if (!claimed) return superseded()
 
       this.ctx.services.logger.warn(`Task ${task.id} run ${runId} failed: ${errorMsg}`)
-
       if (shouldRetry) {
         const waitMs = Math.min(30000, 2000 * Math.pow(2, attempt))
         this.ctx.services.logger.info(`Task ${task.id} retrying in ${waitMs}ms (attempt ${attempt + 2}/${task.retry_count + 1})`)
