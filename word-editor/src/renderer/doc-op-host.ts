@@ -12,6 +12,8 @@ interface DocOpPayload {
   opId: string
   op: string
   args?: Record<string, unknown>
+  /** 目标文档 id（可缺省）：与当前编辑器文档不一致时忽略，避免多窗口重复执行 */
+  docId?: string
 }
 
 /** 安装文档操作宿主，返回卸载函数 */
@@ -27,6 +29,11 @@ export function installDocOpHost(): () => void {
 async function handleDocOp(payload: DocOpPayload): Promise<void> {
   const opId = payload?.opId
   if (!opId) return
+  // 目标定向：非本实例当前文档的操作直接忽略（多窗口/KeepAlive 双实例防重复执行）
+  if (payload.docId) {
+    const localDoc = useWordEditorStore.getState().doc
+    if (!localDoc || localDoc.id !== payload.docId) return
+  }
   const outcome = await execute(payload)
   try {
     await we.docOpResult({ opId, ...outcome })

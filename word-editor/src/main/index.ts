@@ -290,7 +290,8 @@ function registerIpc(ctx: PluginContext): void {
         const assistantMsg: Record<string, unknown> = { id: payload?.assistantId, role: 'assistant', content: acc }
         if (thought) assistantMsg.reasoning_content = thought
         if (errText) assistantMsg.content = `${assistantMsg.content as string}${acc ? '\n\n' : ''}[错误] ${errText}`
-        const hasUser = existing.some((m) => (m as any).role === 'user' && (m as any).content === userMsg.content)
+        // 按消息 id 去重（内容判等会误删用户连发的相同指令导致上下文缺一条 user）
+        const hasUser = !!(userMsg.id && existing.some((m) => (m as any).id === userMsg.id))
         try {
           docStore.saveMessages(lastConvId, [...(hasUser ? existing : [...existing, userMsg]), assistantMsg])
           docStore.saveChat({

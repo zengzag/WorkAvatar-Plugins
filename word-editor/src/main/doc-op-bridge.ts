@@ -21,6 +21,8 @@ export interface DocOpRequestPayload {
   opId: string
   op: string
   args: Record<string, unknown>
+  /** 目标文档 id：多窗口下非该文档的编辑器实例忽略本次操作，避免重复执行 */
+  docId?: string
 }
 
 interface PendingOp {
@@ -48,7 +50,7 @@ class DocOpBridge {
   }
 
   /** 下发一次文档操作并等待渲染端结果 */
-  request(op: string, args: Record<string, unknown>): Promise<DocOpOutcome> {
+  request(op: string, args: Record<string, unknown>, docId?: string): Promise<DocOpOutcome> {
     if (!this.ctx) return Promise.resolve({ error: '文档编辑服务未就绪，请稍后重试。' })
     if (!this.attached) {
       return Promise.resolve({ error: '文档编辑器未打开，请先打开「文档编辑」页面再让我操作文档。' })
@@ -60,7 +62,7 @@ class DocOpBridge {
         resolve({ error: '文档操作超时，请确认文档编辑器处于打开状态后重试。' })
       }, OP_TIMEOUT_MS)
       this.pending.set(opId, { resolve, timer })
-      this.ctx!.ipc.broadcast('doc-op', { opId, op, args } satisfies DocOpRequestPayload)
+      this.ctx!.ipc.broadcast('doc-op', { opId, op, args, docId } satisfies DocOpRequestPayload)
     })
   }
 

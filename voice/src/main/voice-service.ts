@@ -309,6 +309,8 @@ class VoiceService {
   }
 
   deleteTask(id: string): void {
+    // 任务删除时先关停实时识别，避免队列/CPU 泄漏
+    try { this.cancelRealtime(id) } catch { /* ignore */ }
     const task = this.getTask(id)
     if (task?.audio_path && fs.existsSync(task.audio_path)) {
       try { fs.unlinkSync(task.audio_path) } catch { /* ignore */ }

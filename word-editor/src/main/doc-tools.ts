@@ -55,7 +55,7 @@ export function createWordEditorAgentTools(options: DocToolsOptions = {}): Plugi
       // 本轮改动前的内容：用于首个成功改动落地前的自动快照
       const before = doc.data
 
-      const outcome = await bridge.request(op, args ?? {})
+      const outcome = await bridge.request(op, args ?? {}, doc.id)
       if (outcome.error) return { success: false, error: outcome.error }
 
       if (mutating && outcome.data) {
