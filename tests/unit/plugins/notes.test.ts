@@ -306,3 +306,35 @@ describe('notes 渲染端 migrateNoteRelPath（前缀迁移纯函数）', () => 
     expect(migrateNoteRelPath('foo/x.md', 'foo', 'foo')).toBe('foo/x.md')
   })
 })
+
+describe('notes 外部文件读写敏感路径防护', () => {
+  it('敏感文件名/目录段拒绝外部读写', async () => {
+    const { isSensitiveExternalPath } = await import('../../../notes/src/main/index')
+    expect(isSensitiveExternalPath('C:\\repo\\.env')).toBe(true)
+    expect(isSensitiveExternalPath('C:\\repo\\id_rsa.md')).toBe(true)
+    expect(isSensitiveExternalPath('C:\\repo\\cert.pem.md')).toBe(true)
+    expect(isSensitiveExternalPath('C:\\work\\.git\\hook.md')).toBe(true)
+    expect(isSensitiveExternalPath('C:\\work\\.ssh\\a.md')).toBe(true)
+    // 模板类 .env 不敏感
+    expect(isSensitiveExternalPath('C:\\repo\\.env.example.md')).toBe(false)
+    expect(isSensitiveExternalPath('C:\\repo\\普通笔记.md')).toBe(false)
+  })
+
+  it('write-external 拒绝敏感路径', async () => {
+    const localMock = createMockContext('notes')
+    const mod = await loadPlugin()
+    mod.activate(localMock.ctx)
+    const handler = localMock.ipc.handlers.get('write-external')!
+    const res = await handler({ absPath: 'C:\\repo\\.env.md', content: 'x' }) as { error?: string }
+    expect(res.error).toBeTruthy()
+  })
+
+  it('read-external 拒绝敏感路径', async () => {
+    const localMock = createMockContext('notes')
+    const mod = await loadPlugin()
+    mod.activate(localMock.ctx)
+    const handler = localMock.ipc.handlers.get('read-external')!
+    const res = await handler('C:\\work\\.ssh\\a.md') as { error?: string }
+    expect(res.error).toBeTruthy()
+  })
+})

@@ -9,6 +9,24 @@ import fs from 'fs'
 import path from 'path'
 import type { PluginContext, PluginDatabase } from '@workavatar/plugin-sdk'
 
+// ====== 外部 .md 临时打开的敏感路径防护（对齐宿主 FilePermissionService 口径） ======
+
+const SENSITIVE_DIR_SEGMENTS = new Set(['.git', '.ssh', '.aws', '.gnupg', '.kube', '.docker'])
+const SENSITIVE_FILE_RE = /^(\.env(\..+)?|\.git-credentials|\.npmrc|\.netrc|\.htpasswd|id_(rsa|dsa|ecdsa|ed25519)|credentials(\.json)?|.*\.(pem|key|p12|pfx|keystore|jks))$/i
+const ENV_TEMPLATE_RE = /\.(example|sample|template|dist)$/i
+
+export function isSensitiveExternalPath(absPath: string): boolean {
+  const parts = absPath.split(/[\\/]/)
+  const fileName = parts[parts.length - 1]
+  // 外部文件固定为 .md，剥离后缀后再按敏感文件名匹配（如 id_rsa.md / .env.md）
+  const stripped = fileName.replace(/\.md$/i, '') || fileName
+  if (SENSITIVE_FILE_RE.test(fileName) || SENSITIVE_FILE_RE.test(stripped)) {
+    // 模板类（.env.example.md 等）不敏感
+    if (!ENV_TEMPLATE_RE.test(fileName) && !(stripped !== fileName && ENV_TEMPLATE_RE.test(stripped))) return true
+  }
+  return parts.some((seg) => SENSITIVE_DIR_SEGMENTS.has(seg.toLowerCase()))
+}
+
 // ====== 类型（从宿主 shared/channels/notes 迁入，插件不依赖宿主内部） ======
 
 export type NoteNodeType = 'folder' | 'file'
@@ -448,6 +466,7 @@ class NotesService {
     if (!absPath || typeof absPath !== 'string') throw new Error(this.ctx.services.i18n.t('errors.pathRequired'))
     const resolved = path.resolve(absPath)
     if (!resolved.toLowerCase().endsWith('.md')) throw new Error(this.ctx.services.i18n.t('errors.onlyMarkdownSupported'))
+    if (isSensitiveExternalPath(resolved)) throw new Error(this.ctx.services.i18n.t('errors.pathOutOfBounds'))
     let stat: fs.Stats
     try {
       stat = fs.statSync(resolved)
@@ -468,6 +487,7 @@ class NotesService {
     if (!absPath || typeof absPath !== 'string') throw new Error(this.ctx.services.i18n.t('errors.pathRequired'))
     const resolved = path.resolve(absPath)
     if (!resolved.toLowerCase().endsWith('.md')) throw new Error(this.ctx.services.i18n.t('errors.onlyMarkdownSupported'))
+    if (isSensitiveExternalPath(resolved)) throw new Error(this.ctx.services.i18n.t('errors.pathOutOfBounds'))
     fs.writeFileSync(resolved, content, 'utf-8')
     const stat = fs.statSync(resolved)
     return {
