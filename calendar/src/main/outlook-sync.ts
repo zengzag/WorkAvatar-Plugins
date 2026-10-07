@@ -430,7 +430,7 @@ class OutlookSyncService {
             ? this.takeRemote(remoteIndex, todo.id, this.remoteKey(todo.title, todo.due_at ? this.toGraphDateTime(todo.due_at, todo.tzid).dateTime : undefined))
             : undefined
           if (remoteId) {
-            // 命中已有远端任务：按 PATCH 体回写绑定（规避 To-Do range.startDate 的 Edm.Date bug）
+            // 命中已有远端任务：回写绑定（更新不发送 recurrence，见 todoToGraphBody）
             await this.graph(token, 'PATCH', `/me/todo/lists/${this.todoListId}/tasks/${remoteId}`, this.todoToGraphBody(todo, false))
             this.upsertMap('todo', todo.id, remoteId, todo.updated_at)
             result.updated++
@@ -708,17 +708,12 @@ class OutlookSyncService {
       }
     }
 
-    const recurrence = todo.recurrence_rule && todo.due_at
-      ? this.ruleToGraphRecurrence(todo.recurrence_rule, todo.due_at, tz)
-      : undefined
-    if (recurrence) {
-      if (isCreate) {
-        body.recurrence = recurrence
-      } else {
-        // To-Do 服务端 bug：PATCH 携带 range.startDate 纯日期会报 Edm.Date 转换错误。
-        // 规避：仅同步 pattern，range 置空由服务端重建（社区验证的 workaround）
-        body.recurrence = { pattern: recurrence.pattern, range: {} }
-      }
+    // 仅在创建时发送 recurrence：To-Do 服务端无法可靠地 PATCH 更新重复规则
+    //（带 range 报 Edm.Date 转换错误，空 range 报 ErrorRecurrenceEndDateTooBig），
+    // 更新时省略 recurrence 以免整条 PATCH 失败，重复规则沿用远端已有值
+    if (isCreate && todo.recurrence_rule && todo.due_at) {
+      const recurrence = this.ruleToGraphRecurrence(todo.recurrence_rule, todo.due_at, tz)
+      if (recurrence) body.recurrence = recurrence
     }
     return body
   }
