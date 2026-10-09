@@ -106,6 +106,9 @@ function toGraphSpec(graph: WorkflowGraph): PluginWorkflowGraphSpec {
     employeeId: node.data?.employeeId,
     ephemeralRole: toEphemeralSpec(node.data?.ephemeralRole),
     instruction: buildInstruction(node.data),
+    // 节点级模型覆盖（可选）：运行级选择在运行时兜底
+    providerId: typeof node.data?.providerId === 'string' ? node.data.providerId : undefined,
+    modelId: typeof node.data?.modelId === 'string' ? node.data.modelId : undefined,
     maxRounds: node.data?.maxRounds,
     loopTargetId: typeof node.data?.loopTargetId === 'string' ? node.data.loopTargetId : undefined,
     // 评审/条件节点的判定规则为插件语义，经 spec 注入内核通用解析器
@@ -218,6 +221,7 @@ export function activate(ctx: PluginContext): void {
     template: WorkflowTemplate,
     variables: Record<string, string>,
     conversationId?: string,
+    model?: { providerId?: string; modelId?: string },
   ): Promise<{ run?: PluginWorkflowRun; error?: string }> {
     // 运行前结构校验：把「缺角色/分支缺失/成环」等问题在启动前反馈给用户，而不是跑出半截流程
     const problems = validateGraph(template.graph, await listEmployeeIds())
@@ -238,6 +242,8 @@ export function activate(ctx: PluginContext): void {
         graph: toGraphSpec(template.graph),
         variables: resolved,
         conversationId,
+        providerId: model?.providerId || undefined,
+        modelId: model?.modelId || undefined,
       })
       return { run }
     } catch (err: unknown) {
@@ -287,14 +293,16 @@ export function activate(ctx: PluginContext): void {
 
   // ====== 运行 ======
   ctx.ipc.handle('run-start', async (payload: unknown) => {
-    const { templateId, variables, conversationId } = (payload ?? {}) as {
+    const { templateId, variables, conversationId, providerId, modelId } = (payload ?? {}) as {
       templateId?: string
       variables?: Record<string, string>
       conversationId?: string
+      providerId?: string
+      modelId?: string
     }
     const template = loadTemplate(String(templateId || ''))
     if (!template) return { error: 'template.required' }
-    return startRun(template, variables || {}, conversationId)
+    return startRun(template, variables || {}, conversationId, { providerId, modelId })
   })
   ctx.ipc.handle('run-get', async (payload: unknown) => {
     const runId = String((payload as { runId?: string })?.runId ?? '')

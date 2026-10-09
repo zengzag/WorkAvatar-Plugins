@@ -127,6 +127,8 @@
     "inputInstructionHint": "输入节点的指令可引用运行入参（如 {{需求说明}}），其渲染文本可被下游用 {{节点id}} 引用",
     "maxRounds": "最大轮次",
     "maxRoundsHint": "达到轮次上限后不再回环，直接进入下一分支",
+    "model": "模型",
+    "modelHint": "留空则跟随运行级选择或全局默认模型",
     "verdictHint": "评审节点结论由 LLM 以 FINAL_VERDICT 标记给出（PASS / FAIL），据此走出边分支"
   },
   "edge": {
@@ -147,6 +149,8 @@
     "variableRequired": "请填写参数「{{name}}」",
     "variableOptional": "可留空，使用默认值",
     "noVariables": "该模板无需运行入参，点击「开始运行」即可。",
+    "model": "模型",
+    "modelHint": "本次运行所有节点默认使用；节点单独配置模型时以节点为准",
     "startedAt": "开始",
     "finishedAt": "结束",
     "duration": "耗时",
@@ -197,6 +201,9 @@
       "toolInput": "入参",
       "toolOutput": "结果"
     }
+  },
+  "model": {
+    "defaultPlaceholder": "默认模型（跟随全局设置）"
   },
   "status": {
     "pending": "等待",

@@ -1,7 +1,7 @@
 /** 模板库首页 + 画布编辑切换 */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Button, Card, Empty, List, Popconfirm, Space, Spin, Tag, Tooltip, Typography, message, theme } from 'antd'
-import { CopyOutlined, DeleteOutlined, EditOutlined, HistoryOutlined, PlayCircleOutlined, PlusOutlined } from '@ant-design/icons'
+import { Button, Card, Empty, List, Popconfirm, Space, Tag, Tooltip, Typography, message, theme } from 'antd'
+import { CopyOutlined, DeleteOutlined, EditOutlined, HistoryOutlined, LoadingOutlined, PlayCircleOutlined, PlusOutlined } from '@ant-design/icons'
 import { usePageVisible } from '@workavatar/plugin-sdk/renderer'
 import type { PluginWorkflowRun } from '@workavatar/plugin-sdk'
 import { invoke, onRunEvent, onTemplatesChanged, t } from './host'
@@ -163,7 +163,11 @@ export function WorkflowPage() {
                           onClick={() => openRunDetail(run.runId)}
                           style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
                         >
-                          {run.status === 'running' ? <Spin size="small" /> : null}
+                          {/* 用 LoadingOutlined 而非 antd Spin：List 内部会包一层 nested Spin，
+                              其 .ant-spin .ant-spin-section 绝对定位规则会把卡片内的独立 Spin 拽到列表正中 */}
+                          {run.status === 'running' ? (
+                            <LoadingOutlined spin style={{ fontSize: 12, color: token.colorPrimary }} />
+                          ) : null}
                           <Tag color={STATUS_COLOR[run.status]} style={{ marginInlineEnd: 0 }}>
                             {t(`status.${run.status}`)}
                           </Tag>

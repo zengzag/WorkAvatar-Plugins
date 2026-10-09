@@ -28,6 +28,9 @@ export interface WorkflowNodeData {
   /** 正式数字员工 id（与 ephemeralRole 二选一） */
   employeeId?: string
   ephemeralRole?: EphemeralRole
+  /** 节点级模型覆盖（providerId+modelId 成对生效）；留空则用运行级选择 / 全局默认模型 */
+  providerId?: string
+  modelId?: string
   /** 任务指令模板，支持 {{变量}} / {{节点id}} 插值 */
   instruction?: string
   /** loop 节点：最大回环轮次 */

@@ -2,6 +2,7 @@
 import { Form, Input, InputNumber, Segmented, Select, Typography, theme } from 'antd'
 import { useEffect, useState } from 'react'
 import { invoke, t } from './host'
+import { ModelSelect } from './ModelSelect'
 import type { WorkflowNode, WorkflowTemplate } from '../shared/types'
 
 interface Props {
@@ -167,6 +168,20 @@ export function NodeInspector({ template, node, onChange }: Props) {
             </>
           )}
         </>
+      )}
+
+      {showRole && (
+        <Form.Item
+          label={t('field.model')}
+          style={{ marginBottom: 8 }}
+          extra={<Typography.Text type="secondary" style={{ fontSize: 11 }}>{t('field.modelHint')}</Typography.Text>}
+        >
+          <ModelSelect
+            providerId={data.providerId}
+            modelId={data.modelId}
+            onChange={(providerId, modelId) => patch({ providerId: providerId || undefined, modelId: modelId || undefined })}
+          />
+        </Form.Item>
       )}
 
       <Form.Item

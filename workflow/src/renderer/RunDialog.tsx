@@ -5,6 +5,7 @@ import { DeleteOutlined, QuestionCircleOutlined } from '@ant-design/icons'
 import type { PluginWorkflowRun } from '@workavatar/plugin-sdk'
 import { invoke, t } from './host'
 import { useWorkflowStore } from './store'
+import { ModelSelect, loadDefaultModel } from './ModelSelect'
 import { RunBody } from './RunDetail'
 import { STATUS_COLOR, formatDuration, formatTime } from './RunTimeline'
 import type { WorkflowTemplate } from '../shared/types'
@@ -19,8 +20,18 @@ export function RunDialog({ template, onClose }: Props) {
   const [form] = Form.useForm()
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [model, setModel] = useState<{ providerId: string; modelId: string }>({ providerId: '', modelId: '' })
   const activeRun = useWorkflowStore(s => s.activeRun)
   const setActiveRun = useWorkflowStore(s => s.setActiveRun)
+
+  /** 打开不同模板时重置为全局默认模型（预填仅作展示，用户可改或清空） */
+  useEffect(() => {
+    if (!template) return
+    let alive = true
+    setModel({ providerId: '', modelId: '' })
+    void loadDefaultModel().then(m => { if (alive) setModel(m) })
+    return () => { alive = false }
+  }, [template?.id])
 
   /** 只展示属于当前模板的运行进度，避免旧运行残留污染入参表单 */
   const showRun = !!template && !!activeRun && activeRun.templateId === template.id
@@ -46,6 +57,8 @@ export function RunDialog({ template, onClose }: Props) {
       const res = await invoke<{ run?: PluginWorkflowRun; error?: string }>('run-start', {
         templateId: template.id,
         variables: values,
+        providerId: model.providerId || undefined,
+        modelId: model.modelId || undefined,
       })
       if (res?.error || !res?.run) {
         setError(res?.error || 'run failed')
@@ -129,6 +142,17 @@ export function RunDialog({ template, onClose }: Props) {
               {t('run.noVariables')}
             </Typography.Text>
           )}
+          <Form.Item
+            label={t('run.model')}
+            style={{ marginBottom: 12 }}
+            extra={<Typography.Text type="secondary" style={{ fontSize: 11 }}>{t('run.modelHint')}</Typography.Text>}
+          >
+            <ModelSelect
+              providerId={model.providerId}
+              modelId={model.modelId}
+              onChange={(providerId, modelId) => setModel({ providerId, modelId })}
+            />
+          </Form.Item>
           <Button type="primary" loading={starting} onClick={start} style={{ marginTop: 8 }}>
             {starting ? t('run.starting') : t('run.start')}
           </Button>

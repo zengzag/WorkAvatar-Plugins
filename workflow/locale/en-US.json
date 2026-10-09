@@ -127,6 +127,8 @@
     "inputInstructionHint": "The input node's instruction may reference run inputs (e.g. {{Requirements}}); its rendered text can be referenced downstream as {{nodeId}}",
     "maxRounds": "Max rounds",
     "maxRoundsHint": "After reaching the limit the loop stops re-entering",
+    "model": "Model",
+    "modelHint": "Leave empty to follow the run-level choice or the global default model",
     "verdictHint": "Review verdict comes from the LLM's FINAL_VERDICT marker (PASS / FAIL) and drives outgoing branches"
   },
   "edge": {
@@ -147,6 +149,8 @@
     "variableRequired": "Please fill in \"{{name}}\"",
     "variableOptional": "Optional, uses the default value",
     "noVariables": "This template needs no run inputs, click \"Start run\" to proceed.",
+    "model": "Model",
+    "modelHint": "Used by all nodes in this run; a node-level model overrides it",
     "startedAt": "Started",
     "finishedAt": "Finished",
     "duration": "Duration",
@@ -197,6 +201,9 @@
       "toolInput": "Input",
       "toolOutput": "Output"
     }
+  },
+  "model": {
+    "defaultPlaceholder": "Default model (global setting)"
   },
   "status": {
     "pending": "Pending",
