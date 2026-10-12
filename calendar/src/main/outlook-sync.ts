@@ -341,7 +341,11 @@ class OutlookSyncService {
     if (!resp.ok) {
       const detail = JSON.stringify(json?.error || json)
       this.ctx.services.logger.error(`Graph ${method} ${path} -> ${resp.status}: ${detail}`)
-      throw new Error(json?.error?.message || this.ctx.services.i18n.t('calendar.outlookGraphRequestFailed', { method, path, status: resp.status }))
+      const err: any = new Error(json?.error?.message || this.ctx.services.i18n.t('calendar.outlookGraphRequestFailed', { method, path, status: resp.status }))
+      // 保留状态码与 Graph 错误码，供调用方按错误类型做降级处理（如重复规则冲突时删除重建）
+      err.status = resp.status
+      err.graphCode = json?.error?.innerError?.code || json?.error?.code
+      throw err
     }
     return json
   }
@@ -431,8 +435,8 @@ class OutlookSyncService {
             : undefined
           if (remoteId) {
             // 命中已有远端任务：回写绑定（更新不发送 recurrence，见 todoToGraphBody）
-            await this.graph(token, 'PATCH', `/me/todo/lists/${this.todoListId}/tasks/${remoteId}`, this.todoToGraphBody(todo, false))
-            this.upsertMap('todo', todo.id, remoteId, todo.updated_at)
+            const id = await this.patchOrReplaceTodo(token, remoteId, todo)
+            this.upsertMap('todo', todo.id, id, todo.updated_at)
             result.updated++
           } else {
             const created = await this.graph(token, 'POST', `/me/todo/lists/${this.todoListId}/tasks`, this.todoToGraphBody(todo))
@@ -440,8 +444,8 @@ class OutlookSyncService {
             result.created++
           }
         } else if (todo.updated_at > mapping.synced_updated_at) {
-          await this.graph(token, 'PATCH', `/me/todo/lists/${this.todoListId}/tasks/${mapping.remote_id}`, this.todoToGraphBody(todo, false))
-          this.upsertMap('todo', todo.id, mapping.remote_id, todo.updated_at)
+          const id = await this.patchOrReplaceTodo(token, mapping.remote_id, todo)
+          this.upsertMap('todo', todo.id, id, todo.updated_at)
           result.updated++
         }
       } catch (err: any) {
@@ -453,6 +457,41 @@ class OutlookSyncService {
 
     if (remoteIndex) await this.pruneRemote(token, 'todo', remoteIndex, result)
     await this.syncDeletions(token, 'todo', localIds, mapRows, result)
+  }
+
+  /**
+   * 更新远端待办：先 PATCH；若因重复规则冲突（400）失败则删除重建。
+   * To-Do 的 PATCH 无法更新重复规则（见 todoToGraphBody），远端旧规则与新截止时间冲突时
+   * 会整条 400（如 ErrorRecurrenceEndDateTooBig / Edm.Date 转换错误）。此时删除远端任务并按
+   * 本地最新数据（含重复规则）重建：既消除冲突，又让重复区间重新锚定到当前截止时间，避免再次越界。
+   * 返回最终有效的远端 id（重建后为新 id）。
+   */
+  private async patchOrReplaceTodo(token: string, remoteId: string, todo: CalendarTodo): Promise<string> {
+    try {
+      await this.graph(token, 'PATCH', `/me/todo/lists/${this.todoListId}/tasks/${remoteId}`, this.todoToGraphBody(todo, false))
+      return remoteId
+    } catch (err: any) {
+      if (!(todo.recurrence_rule && this.isRecurrencePatchConflict(err))) throw err
+      this.ctx.services.logger.info(`Todo recurrence conflict, recreating remote task ${remoteId}`)
+      return this.replaceRemoteTodo(token, remoteId, todo)
+    }
+  }
+
+  /** 删除远端待办并重建（含重复规则），返回新远端 id；删除时 404 视为已不存在 */
+  private async replaceRemoteTodo(token: string, remoteId: string, todo: CalendarTodo): Promise<string> {
+    try {
+      await this.graph(token, 'DELETE', `/me/todo/lists/${this.todoListId}/tasks/${remoteId}`)
+    } catch (err: any) {
+      if (err?.status !== 404) throw err
+    }
+    const created = await this.graph(token, 'POST', `/me/todo/lists/${this.todoListId}/tasks`, this.todoToGraphBody(todo))
+    return created.id
+  }
+
+  /** 判断 PATCH 失败是否为重复规则导致的 400（错误码/正文含 recurrence 或 Edm.Date） */
+  private isRecurrencePatchConflict(err: any): boolean {
+    if (err?.status !== 400) return false
+    return /recurrence/i.test(String(err?.graphCode || '')) || /recurrence|Edm\.Date/i.test(String(err?.message || ''))
   }
 
   /** 映射中存在但本地已删除的记录 → 删除远端对象 */
@@ -642,7 +681,9 @@ class OutlookSyncService {
     if (rule.count) {
       range = { type: 'numbered', startDate, numberOfOccurrences: rule.count }
     } else if (rule.until) {
-      const endDate = this.toGraphDateTime(rule.until * 1000, tz, true).dateTime
+      // rule.until 为 unix 秒，直接传给 toGraphDateTime（其内部 ×1000 转毫秒）；
+      // 误乘 1000 会得到 ~1e15 的“秒” → endDate 落到公元数万年 → Graph 报 ErrorRecurrenceEndDateTooBig
+      const endDate = this.toGraphDateTime(rule.until, tz, true).dateTime
       // Graph 要求 startDate <= endDate；截至日早于开始日说明规则已失效，不同步主规则
       if (endDate < startDate) return undefined
       range = { type: 'endDate', startDate, endDate }
