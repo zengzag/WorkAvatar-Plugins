@@ -108,6 +108,13 @@ export interface VoiceSettings {
 
 const SETTINGS_KEY = 'voice_settings'
 
+/**
+ * 会议纪要生成的输出 token 预算。
+ * 需覆盖「思考 + 正文」：alwaysReasoning 类 provider（如 opencode-go）思考与正文共享该上限，
+ * 预算过小会被思考吃光、正文为空（日志表现为 completionTokens 顶到上限且 content 长度为 0）。
+ */
+const MINUTES_MAX_TOKENS = 16384
+
 const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   sttMode: 'local',
   apiConfig: {
@@ -493,7 +500,7 @@ class VoiceService {
 
   // ==================== Generate Minutes ====================
 
-  async generateMinutes(taskId: string, minutesType: string, customPrompt?: string): Promise<VoiceTask | null> {
+  async generateMinutes(taskId: string, customPrompt?: string): Promise<VoiceTask | null> {
     const task = this.getTask(taskId)
     if (!task) throw new Error('Task not found')
     if (!task.transcript) throw new Error('No transcript available')
@@ -503,6 +510,7 @@ class VoiceService {
       throw new Error(this.ctx.services.i18n.t('errors.noMinutesModel'))
     }
 
+    const isCustom = !!customPrompt?.trim()
     const llmConfig = settings.minutesModel
 
     this.updateTask({ id: taskId, status: 'generating_minutes', errorMessage: null })
@@ -513,8 +521,7 @@ class VoiceService {
     this.notifyProgress(taskId, 'generating_minutes', this.ctx.services.i18n.t('progress.preparingMinutes'), 10)
 
     try {
-      const prompt = this.buildMinutesPrompt(minutesType, customPrompt)
-      const systemPrompt = prompt
+      const systemPrompt = isCustom ? this.buildCustomMinutesPrompt(customPrompt!.trim()) : this.buildMinutesPrompt()
       const userMessage = this.formatTranscriptForLLM(task)
 
       this.notifyProgress(taskId, 'generating_minutes', this.ctx.services.i18n.t('progress.analyzingTranscript'), 25)
@@ -529,7 +536,9 @@ class VoiceService {
           providerId: llmConfig.provider_id,
           modelId: llmConfig.model_id,
           temperature: 0.3,
-          maxTokens: 4096,
+          // 预算须覆盖「思考 + 正文」：alwaysReasoning 类 provider（如 opencode-go）思考与正文共享该上限，
+          // 预算过小会被思考吃光、正文为空（表现为"AI 未返回任何内容"，如 deepseek 系模型在 opencode-go 上）。
+          maxTokens: MINUTES_MAX_TOKENS,
         },
         {
           onChunk: (chunk: string) => {
@@ -563,7 +572,7 @@ class VoiceService {
         id: taskId,
         status: 'completed',
         minutes: finalText,
-        minutesType,
+        minutesType: isCustom ? VoiceService.MINUTES_TYPE_CUSTOM : VoiceService.MINUTES_TYPE,
       })
 
       this.notifyProgress(taskId, 'done', this.ctx.services.i18n.t('progress.minutesCompleted'), 100, undefined, finalText)
@@ -603,16 +612,22 @@ class VoiceService {
     }
   }
 
-  private buildMinutesPrompt(minutesType: string, customPrompt?: string): string {
+  /** 会议纪要类型（内置仅此一种，内容摘要/待办事项提示词已移除） */
+  private static readonly MINUTES_TYPE = 'meeting_minutes'
+  /** 自定义纪要类型（用户提供生成要求） */
+  private static readonly MINUTES_TYPE_CUSTOM = 'custom'
+
+  /** 自定义纪要提示词：按用户要求生成 */
+  private buildCustomMinutesPrompt(customPrompt: string): string {
     const correctionNote = `重要：以下转录文本由语音识别引擎自动生成，可能存在同音字错误、标点缺失、专有名词识别偏差等问题。请在生成内容时先对转录文本进行理解和纠错，确保输出内容的准确性和可读性。`
 
-    if (customPrompt) {
-      return `你是一位专业的会议纪要助手。请根据以下会议录音转录文本，按照用户要求生成内容。\n\n${correctionNote}\n\n用户要求：${customPrompt}\n\n请使用 Markdown 格式输出。`
-    }
+    return `你是一位专业的会议纪要助手。请根据以下会议录音转录文本，按照用户要求生成内容。\n\n${correctionNote}\n\n用户要求：${customPrompt}\n\n请使用 Markdown 格式输出。`
+  }
 
-    switch (minutesType) {
-      case 'meeting_minutes':
-        return `你是一位专业的会议纪要助手。请根据以下会议录音转录文本，生成结构化的会议纪要。
+  private buildMinutesPrompt(): string {
+    const correctionNote = `重要：以下转录文本由语音识别引擎自动生成，可能存在同音字错误、标点缺失、专有名词识别偏差等问题。请在生成内容时先对转录文本进行理解和纠错，确保输出内容的准确性和可读性。`
+
+    return `你是一位专业的会议纪要助手。请根据以下会议录音转录文本，生成结构化的会议纪要。
 
 ${correctionNote}
 
@@ -638,35 +653,6 @@ ${correctionNote}
 - 如果转录文本中信息不明确，用"（未明确）"标注
 - 保持客观，不要添加转录文本中未提及的内容
 - 使用中文输出`
-      case 'summary':
-        return `你是一位专业的会议内容总结助手。请根据以下会议录音转录文本，生成一份简洁的内容摘要。
-
-${correctionNote}
-
-要求：
-- 用 3-5 段话概括会议核心内容
-- 突出重点议题和关键结论
-- 使用 Markdown 格式
-- 使用中文输出`
-      case 'action_items':
-        return `你是一位专业的会议任务提取助手。请从以下会议录音转录文本中，提取所有待办事项和行动项。
-
-${correctionNote}
-
-输出格式（Markdown）：
-## 待办事项清单
-
-| 序号 | 任务描述 | 负责人 | 截止时间 | 备注 |
-|------|---------|--------|---------|------|
-| 1    | ...     | ...    | ...     | ... |
-
-注意：
-- 只提取明确的行动项，不要推测
-- 如果负责人或时间未提及，标注"未明确"
-- 使用中文输出`
-      default:
-        return `请根据以下会议录音转录文本，按照用户要求生成内容。\n\n${correctionNote}\n\n使用 Markdown 格式输出，使用中文。`
-    }
   }
 
   private formatTranscriptForLLM(task: VoiceTask): string {

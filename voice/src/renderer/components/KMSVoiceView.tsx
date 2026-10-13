@@ -208,6 +208,212 @@ const RecordingLevelMeter: React.FC<{ paused: boolean }> = ({ paused }) => {
   )
 }
 
+/** 录音时长显示：独立订阅 store.duration，避免 5fps 的计时器刷新触发整页重渲染 */
+const RecordingTimer: React.FC = () => {
+  const duration = useVoiceRecordingStore(s => s.duration)
+  return <>{formatDuration(duration)}</>
+}
+
+interface RealtimeTranscriptPanelProps {
+  isDualSource: boolean
+  isPaused: boolean
+  micPaused: boolean
+  systemPaused: boolean
+  isPreparing: boolean
+  realtimeError: string
+  taskSttMode: 'local' | 'api'
+}
+
+/**
+ * 实时识别字幕面板：独立订阅录音 store 的实时文本/段落/时长。
+ * 每 100ms 一次的识别结果只重渲染本组件，不再让任务列表/设置/纪要等整页重渲染，
+ * 避免长时间录音时占满渲染主线程导致点击导航长时间无响应。
+ */
+const RealtimeTranscriptPanel: React.FC<RealtimeTranscriptPanelProps> = ({
+  isDualSource, isPaused, micPaused, systemPaused, isPreparing, realtimeError, taskSttMode,
+}) => {
+  const { t } = useTranslation('voice')
+  const { token } = theme.useToken()
+  const realtimeTextBySource = useVoiceRecordingStore(s => s.realtimeTextBySource)
+  const realtimeSegmentsBySource = useVoiceRecordingStore(s => s.realtimeSegmentsBySource)
+  const recordDuration = useVoiceRecordingStore(s => s.duration)
+
+  // 字幕区自适应滚动：用户向上滚动时暂停自动滚动，重新滚到底部时恢复
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const autoScrollRef = useRef(true)
+  const scrollCleanupRef = useRef<(() => void) | null>(null)
+  const setScrollRef = useCallback((el: HTMLDivElement | null) => {
+    if (scrollCleanupRef.current) {
+      scrollCleanupRef.current()
+      scrollCleanupRef.current = null
+    }
+    scrollRef.current = el
+    if (el) {
+      const handleScroll = () => {
+        autoScrollRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+      }
+      el.addEventListener('scroll', handleScroll, { passive: true })
+      scrollCleanupRef.current = () => el.removeEventListener('scroll', handleScroll)
+    }
+  }, [])
+  useEffect(() => () => { scrollCleanupRef.current?.() }, [])
+
+  const realtimeText = Object.values(realtimeTextBySource).join('')
+  const realtimeSegments = Object.values(realtimeSegmentsBySource).flat().sort((a, b) => a.start - b.start)
+
+  useEffect(() => {
+    if (!autoScrollRef.current) return
+    const el = scrollRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [realtimeTextBySource, realtimeSegmentsBySource])
+
+  const renderSourceTranscript = (source: string, sourcePaused: boolean) => {
+    const text = realtimeTextBySource[source] || ''
+    const segments = realtimeSegmentsBySource[source] || []
+    const completedText = segments.map(s => s.text).join('')
+    const partialText = text.slice(completedText.length)
+
+    if (!text && segments.length === 0) {
+      return taskSttMode === 'local' && !sourcePaused ? (
+        <Text type="secondary" style={{ fontSize: 13 }}>
+          <ThunderboltOutlined /> {t('voice.realtimeRecognizing')}
+        </Text>
+      ) : null
+    }
+
+    return (
+      <>
+        {segments.map((seg, idx) => (
+          <div key={idx} style={{
+            marginBottom: 8,
+            padding: '4px 0',
+            borderBottom: idx < segments.length - 1 || partialText
+              ? `1px solid ${token.colorBorderSecondary}`
+              : 'none',
+          }}>
+            <Text type="secondary" style={{ fontSize: 11, fontFamily: 'monospace', marginRight: 6 }}>
+              {formatTimestampRange(seg.start, seg.end)}
+            </Text>
+            <Text style={{ fontSize: 14, lineHeight: 1.7 }}>
+              {seg.text}
+            </Text>
+          </div>
+        ))}
+        {partialText && (
+          <div style={{ marginBottom: 8, padding: '4px 0' }}>
+            <Text type="secondary" style={{ fontSize: 11, fontFamily: 'monospace', marginRight: 6 }}>
+              {formatTimestamp(recordDuration)}
+            </Text>
+            <Text style={{ fontSize: 14, lineHeight: 1.7, color: token.colorPrimary }}>
+              {partialText}
+              {!sourcePaused && <span style={{ opacity: 0.5, animation: 'blink 1s infinite' }}>▎</span>}
+            </Text>
+          </div>
+        )}
+        {!partialText && !sourcePaused && segments.length > 0 && (
+          <Text type="secondary" style={{ fontSize: 11, opacity: 0.5 }}>
+            <ThunderboltOutlined /> {t('voice.realtimeListening')}
+          </Text>
+        )}
+      </>
+    )
+  }
+
+  return (
+    <div
+      ref={setScrollRef}
+      style={{
+        flex: 1, minWidth: 0, overflowY: 'auto', padding: '16px 20px',
+        background: token.colorBgContainer, borderRadius: 10,
+        border: `1px solid ${token.colorBorderSecondary}`,
+      }}
+    >
+      {isPreparing ? (
+        <div style={{ textAlign: 'center', paddingTop: 60 }}>
+          <LoadingOutlined style={{ fontSize: 24, marginBottom: 12, color: token.colorPrimary }} />
+          <Text type="secondary" style={{ display: 'block', fontSize: 13 }}>
+            {t('voice.preparingModel')}
+          </Text>
+        </div>
+      ) : realtimeError ? (
+        <Text type="warning" style={{ fontSize: 13 }}>
+          <ExclamationCircleOutlined /> {realtimeError}
+        </Text>
+      ) : isDualSource ? (
+        <div style={{ display: 'flex', gap: 16 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{
+              fontSize: 12, fontWeight: 600, marginBottom: 8, paddingBottom: 4,
+              borderBottom: `1px solid ${token.colorBorderSecondary}`,
+              color: micPaused ? token.colorTextDisabled : token.colorPrimary,
+            }}>
+              🎤 {t('voice.micSource')} {micPaused && `(${t('voice.recordingPaused')})`}
+            </div>
+            {renderSourceTranscript('mic', micPaused)}
+          </div>
+          <div style={{ width: 1, background: token.colorBorderSecondary, alignSelf: 'stretch' }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{
+              fontSize: 12, fontWeight: 600, marginBottom: 8, paddingBottom: 4,
+              borderBottom: `1px solid ${token.colorBorderSecondary}`,
+              color: systemPaused ? token.colorTextDisabled : '#52c41a',
+            }}>
+              🔊 {t('voice.systemSource')} {systemPaused && `(${t('voice.recordingPaused')})`}
+            </div>
+            {renderSourceTranscript('system', systemPaused)}
+          </div>
+        </div>
+      ) : (
+        <>
+          {!realtimeText && realtimeSegments.length === 0 ? (
+            <div style={{ textAlign: 'center', paddingTop: 60 }}>
+              <Text type="secondary" style={{ fontSize: 13 }}>
+                {taskSttMode === 'local'
+                  ? <><ThunderboltOutlined /> {t('voice.realtimeRecognizing')}</>
+                  : t('voice.recordingNoRealtime')}
+              </Text>
+            </div>
+          ) : (
+            <>
+              {realtimeSegments.map((seg, idx) => (
+                <div key={idx} style={{
+                  marginBottom: 12,
+                  padding: '6px 0',
+                  borderBottom: idx < realtimeSegments.length - 1 || realtimeText.slice(realtimeSegments.map(s => s.text).join('').length)
+                    ? `1px solid ${token.colorBorderSecondary}`
+                    : 'none',
+                }}>
+                  <Text type="secondary" style={{ fontSize: 12, fontFamily: 'monospace', marginRight: 8 }}>
+                    {formatTimestampRange(seg.start, seg.end)}
+                  </Text>
+                  <Text style={{ fontSize: 15, lineHeight: 1.8 }}>
+                    {seg.text}
+                  </Text>
+                </div>
+              ))}
+              {(() => {
+                const completedText = realtimeSegments.map(s => s.text).join('')
+                const partialText = realtimeText.slice(completedText.length)
+                return partialText ? (
+                  <div style={{ marginBottom: 12, padding: '6px 0' }}>
+                    <Text type="secondary" style={{ fontSize: 12, fontFamily: 'monospace', marginRight: 8 }}>
+                      {formatTimestamp(recordDuration)}
+                    </Text>
+                    <Text style={{ fontSize: 15, lineHeight: 1.8, color: token.colorPrimary }}>
+                      {partialText}
+                      {!isPaused && <span style={{ opacity: 0.5, animation: 'blink 1s infinite' }}>▎</span>}
+                    </Text>
+                  </div>
+                ) : null
+              })()}
+            </>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 interface KMSVoiceViewProps {
   onOpenSettings?: () => void
 }
@@ -244,6 +450,8 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [isRecording, setIsRecording] = useState(false)
   const [isPaused, setIsPaused] = useState(false)
+  /** 正在停止保存（异步转码/落盘）的任务 ID：期间不显示"录音已中断"提示 */
+  const [stoppingTaskId, setStoppingTaskId] = useState<string | null>(null)
   const [recordSource, setRecordSource] = useState<RecordSource>('mic')
   /** 每个任务的 STT 引擎模式（优先于全局设置） */
   const [taskSttMode, setTaskSttMode] = useState<'local' | 'api'>(() => (settings?.sttMode as 'local' | 'api') || 'local')
@@ -254,12 +462,13 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
       setTaskSttMode(settings.sttMode as 'local' | 'api')
     }
   }, [settings?.sttMode])
-  const [recordDuration, setRecordDuration] = useState(0)
-  // 音频电平写入全局 store，由 RecordingLevelMeter 小组件单独订阅，避免 60fps 重渲染整页
+  // 音频电平/录音时长/实时识别文本等高频状态写入全局 store，
+  // 由 RecordingLevelMeter / RecordingTimer / RealtimeTranscriptPanel 等小组件单独订阅，
+  // 避免 60fps 电平、5fps 计时器、10~20fps 识别结果重渲染整页（否则导航点击长时间无响应）
   const setAudioLevelStore = useVoiceRecordingStore(s => s.setAudioLevel)
-  // 每个来源的实时识别状态
-  const [realtimeTextBySource, setRealtimeTextBySource] = useState<Record<string, string>>({})
-  const [realtimeSegmentsBySource, setRealtimeSegmentsBySource] = useState<Record<string, { start: number; end: number; text: string }[]>>({})
+  const setDurationStore = useVoiceRecordingStore(s => s.setDuration)
+  const setRealtimeSnapshotStore = useVoiceRecordingStore(s => s.setRealtimeSnapshot)
+  const resetRealtimeStore = useVoiceRecordingStore(s => s.resetRealtime)
   const [realtimeError, setRealtimeError] = useState('')
   // 每个来源的暂停状态
   const [micPaused, setMicPaused] = useState(false)
@@ -275,31 +484,14 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
 
   // 组件级 refs（录音状态由 recordingSession 单例持有，跨卸载/挂载持久）
   const realtimeUnsubscribeRef = useRef<(() => void) | null>(null)
-  const transcriptScrollRef = useRef<HTMLDivElement | null>(null)
-  // 是否自动滚动到底部：用户向上滚动时暂停自动滚动，重新滚到底部时恢复
-  const autoScrollRef = useRef(true)
-  // scroll 监听器清理函数（配合回调 ref 使用，确保 DOM 绑定时立即注册监听器）
-  const scrollCleanupRef = useRef<(() => void) | null>(null)
   // 流式纪要区域 ref + 自动滚动控制
   const minutesScrollRef = useRef<HTMLDivElement | null>(null)
   const minutesAutoScrollRef = useRef(true)
 
-  // 回调 ref：DOM 元素绑定时立即注册 scroll 监听器，避免 effect 依赖时序问题
-  const setTranscriptScrollRef = useCallback((el: HTMLDivElement | null) => {
-    if (scrollCleanupRef.current) {
-      scrollCleanupRef.current()
-      scrollCleanupRef.current = null
-    }
-    transcriptScrollRef.current = el
-    if (el) {
-      const handleScroll = () => {
-        const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight
-        autoScrollRef.current = distanceFromBottom < 40
-      }
-      el.addEventListener('scroll', handleScroll, { passive: true })
-      scrollCleanupRef.current = () => el.removeEventListener('scroll', handleScroll)
-    }
-  }, [])
+  // 将单例中累积的实时识别快照同步到 store（页面可见时调用；隐藏时只累积不通知订阅方，避免后台重渲染）
+  const flushRealtimeSnapshot = useCallback(() => {
+    setRealtimeSnapshotStore(recordingSession.realtimeTextBySource, recordingSession.realtimeSegmentsBySource)
+  }, [setRealtimeSnapshotStore])
 
   // 全局录音 store（导航栏指示器）
   const setRecordingStore = useVoiceRecordingStore(s => s.setRecording)
@@ -321,14 +513,13 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
       setMicPaused(recordingSession.micPaused)
       setSystemPaused(recordingSession.systemPaused)
       setRecordSource(recordingSession.recordSource || 'mic')
-      setRecordDuration((Date.now() - recordingSession.recordStartTime - recordingSession.pausedDuration) / 1000)
+      setDurationStore((Date.now() - recordingSession.recordStartTime - recordingSession.pausedDuration) / 1000)
       // 恢复卸载前已识别的实时字幕（避免切换界面后字幕丢失）
-      setRealtimeTextBySource(recordingSession.realtimeTextBySource)
-      setRealtimeSegmentsBySource(recordingSession.realtimeSegmentsBySource)
+      flushRealtimeSnapshot()
       // 重启前台计时器与音量可视化（暂停态不重启，由 resumeRecording 恢复）
       if (!recordingSession.isPaused) {
         recordingSession.durationTimer = setInterval(() => {
-          setRecordDuration((Date.now() - recordingSession.recordStartTime - recordingSession.pausedDuration) / 1000)
+          setDurationStore((Date.now() - recordingSession.recordStartTime - recordingSession.pausedDuration) / 1000)
         }, 200)
       }
       const analyser = recordingSession.analyser
@@ -369,13 +560,12 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
       }
       return
     }
-    // 回到页面：恢复隐藏期间单例累积的实时字幕（隐藏时仅更新单例未触发重渲染）
-    setRealtimeTextBySource(recordingSession.realtimeTextBySource)
-    setRealtimeSegmentsBySource(recordingSession.realtimeSegmentsBySource)
+    // 回到页面：把隐藏期间单例累积的实时字幕同步到 store（隐藏时仅累积未通知订阅方）
+    flushRealtimeSnapshot()
     // 若正在录音（非暂停）且前台可视化未在运行，则恢复；暂停态由 resumeRecording 负责恢复
     if (isRecording && !recordingSession.isPaused && recordingSession.analyser && !recordingSession.animationFrame) {
       recordingSession.durationTimer = setInterval(() => {
-        setRecordDuration((Date.now() - recordingSession.recordStartTime - recordingSession.pausedDuration) / 1000)
+        setDurationStore((Date.now() - recordingSession.recordStartTime - recordingSession.pausedDuration) / 1000)
       }, 200)
       const dataArray = new Uint8Array(recordingSession.analyser.frequencyBinCount)
       const updateLevel = () => {
@@ -388,7 +578,7 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
       }
       updateLevel()
     }
-  }, [isPageVisible, isRecording])
+  }, [isPageVisible, isRecording, flushRealtimeSnapshot])
 
   // 本地状态变化同步到全局 store（导航栏指示器）
   useEffect(() => {
@@ -411,20 +601,18 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
       const activeIds = [recordingSession.realtimeTaskIdMic, recordingSession.realtimeTaskIdSystem, recordingSession.realtimeTaskId]
       if (!activeIds.includes(data.taskId)) return
 
-      // 页面隐藏时仅更新单例、不触发 React 重渲染，避免后台长时间录音时累积大量段落导致渲染卡顿。
-      // 单例始终写入最新值，回到页面时再从单例恢复 UI 状态。
+      // 页面隐藏时仅更新单例、不通知 store，避免后台长时间录音时累积大量段落导致重渲染卡顿。
+      // 单例始终写入最新值，回到页面时再由 flushRealtimeSnapshot 同步到 store。
       const updateText = (text: string) => {
-        const next = { ...recordingSession.realtimeTextBySource, [source]: text }
-        recordingSession.realtimeTextBySource = next
-        if (isPageVisible) setRealtimeTextBySource(next)
+        recordingSession.realtimeTextBySource = { ...recordingSession.realtimeTextBySource, [source]: text }
+        if (isPageVisible) flushRealtimeSnapshot()
       }
       const updateSegment = (segment: { start: number; end: number; text: string }) => {
-        const next = {
+        recordingSession.realtimeSegmentsBySource = {
           ...recordingSession.realtimeSegmentsBySource,
           [source]: [...(recordingSession.realtimeSegmentsBySource[source] || []), segment],
         }
-        recordingSession.realtimeSegmentsBySource = next
-        if (isPageVisible) setRealtimeSegmentsBySource(next)
+        if (isPageVisible) flushRealtimeSnapshot()
       }
 
       if (data.isFinal) {
@@ -438,19 +626,7 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
       realtimeUnsubscribeRef.current?.()
       realtimeUnsubscribeRef.current = null
     }
-  }, [onRealtimeResult, isPageVisible])
-
-  // 字幕区自适应滚动：用户向上滚动时暂停自动滚动，重新滚到底部时恢复。
-  // scroll 监听器通过回调 ref (setTranscriptScrollRef) 在 DOM 绑定时立即注册，
-  // 避免组件重新挂载后 effect 依赖时序导致监听器未注册的问题。
-  // 仅在自动滚动开启时跟随最新字幕
-  useEffect(() => {
-    if (!autoScrollRef.current) return
-    const el = transcriptScrollRef.current
-    if (el) {
-      el.scrollTop = el.scrollHeight
-    }
-  }, [realtimeTextBySource, realtimeSegmentsBySource])
+  }, [onRealtimeResult, isPageVisible, flushRealtimeSnapshot])
 
   // 流式纪要区域自动滚动到底部（生成期间）
   const streamingMinutesText = selectedTaskId ? streamingMinutes[selectedTaskId] : undefined
@@ -620,14 +796,18 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
     recordingSession.mediaRecorderMic = null
     recordingSession.mediaRecorderSystem = null
 
-    setRealtimeTextBySource({})
-    setRealtimeSegmentsBySource({})
-    setRecordDuration(0)
+    resetRealtimeStore()
+    setDurationStore(0)
     subtitleHide()
     clearRecordingSession()
-  }, [saveAudio, saveSecondaryAudio, mergeDualSourceTranscript, realtimeStop, subtitleHide, t, message])
+    setStoppingTaskId(null)
+  }, [saveAudio, saveSecondaryAudio, mergeDualSourceTranscript, realtimeStop, subtitleHide, t, message, resetRealtimeStore, setDurationStore])
 
   const stopRecording = useCallback(async () => {
+    // 标记"正在停止保存"：recorder 已停但音频仍在异步转码/落盘，DB 状态尚未更新为 recorded，
+    // 期间抑制"录音已中断"误报（该提示仅用于程序异常退出后残留的 recording 状态恢复）
+    const hasActiveRecorder = !!(recordingSession.mediaRecorder || recordingSession.mediaRecorderMic || recordingSession.mediaRecorderSystem)
+    if (hasActiveRecorder) setStoppingTaskId(recordingSession.recordingTaskId)
     // 停止所有 recorder（单源或双源）
     const stopRecorder = (rec: MediaRecorder | null) => {
       if (rec && rec.state !== 'inactive') {
@@ -747,7 +927,7 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
     }
     // 重启计时器
     recordingSession.durationTimer = setInterval(() => {
-      setRecordDuration((Date.now() - recordingSession.recordStartTime - recordingSession.pausedDuration) / 1000)
+      setDurationStore((Date.now() - recordingSession.recordStartTime - recordingSession.pausedDuration) / 1000)
     }, 200)
     // 重启音量可视化
     const analyser = recordingSession.analyser
@@ -1050,11 +1230,11 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
             recordingSession.realtimeActive = false
           }
 
-          setRealtimeTextBySource({})
-          setRealtimeSegmentsBySource({})
-          setRecordDuration(0)
+          resetRealtimeStore()
+          setDurationStore(0)
           subtitleHide()
           clearRecordingSession()
+          setStoppingTaskId(null)
         }
 
         recorder.start(1000)
@@ -1070,17 +1250,15 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
       setSystemPaused(false)
       recordingSession.micPaused = false
       recordingSession.systemPaused = false
-      setRecordDuration(0)
-      setRealtimeTextBySource({})
-      setRealtimeSegmentsBySource({})
+      setDurationStore(0)
+      resetRealtimeStore()
       recordingSession.realtimeTextBySource = {}
       recordingSession.realtimeSegmentsBySource = {}
-      autoScrollRef.current = true
       setRealtimeError('')
 
       // Timer
       recordingSession.durationTimer = setInterval(() => {
-        setRecordDuration((Date.now() - recordingSession.recordStartTime - recordingSession.pausedDuration) / 1000)
+        setDurationStore((Date.now() - recordingSession.recordStartTime - recordingSession.pausedDuration) / 1000)
       }, 200)
 
       // 启动实时识别（仅本地模式）
@@ -1186,14 +1364,14 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
     }
   }, [settings, transcribe, t, message, onOpenSettings, taskSttMode])
 
-  const handleGenerateMinutes = useCallback(async (task: VoiceTask, minutesType: string, customPrompt?: string) => {
+  const handleGenerateMinutes = useCallback(async (task: VoiceTask, customPrompt?: string) => {
     if (!settings?.minutesModel?.provider_id) {
       message.warning(t('voice.noMinutesModel'))
       onOpenSettings?.()
       return
     }
     try {
-      await generateMinutes(task.id, minutesType, customPrompt)
+      await generateMinutes(task.id, customPrompt)
       message.success(t('voice.minutesGenerated'))
     } catch (err: any) {
       message.error(t('voice.minutesGenerateFailed') + ': ' + (err?.message || ''))
@@ -1239,10 +1417,6 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
       return []
     }
   }, [activeTask])
-
-  // Derive flat realtime text/segments from per-source state
-  const realtimeText = Object.values(realtimeTextBySource).join('')
-  const realtimeSegments = Object.values(realtimeSegmentsBySource).flat().sort((a, b) => a.start - b.start)
 
   const isDualSource = recordSource === 'both'
 
@@ -1305,59 +1479,6 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
 
   const renderRecordingPanel = (task: VoiceTask) => {
     if (isRecording) {
-      // 渲染单来源的实时识别内容
-      const renderSourceTranscript = (source: string, sourcePaused: boolean) => {
-        const text = realtimeTextBySource[source] || ''
-        const segments = realtimeSegmentsBySource[source] || []
-        const completedText = segments.map(s => s.text).join('')
-        const partialText = text.slice(completedText.length)
-
-        if (!text && segments.length === 0) {
-          return taskSttMode === 'local' && !sourcePaused ? (
-            <Text type="secondary" style={{ fontSize: 13 }}>
-              <ThunderboltOutlined /> {t('voice.realtimeRecognizing')}
-            </Text>
-          ) : null
-        }
-
-        return (
-          <>
-            {segments.map((seg, idx) => (
-              <div key={idx} style={{
-                marginBottom: 8,
-                padding: '4px 0',
-                borderBottom: idx < segments.length - 1 || partialText
-                  ? `1px solid ${token.colorBorderSecondary}`
-                  : 'none',
-              }}>
-                <Text type="secondary" style={{ fontSize: 11, fontFamily: 'monospace', marginRight: 6 }}>
-                  {formatTimestampRange(seg.start, seg.end)}
-                </Text>
-                <Text style={{ fontSize: 14, lineHeight: 1.7 }}>
-                  {seg.text}
-                </Text>
-              </div>
-            ))}
-            {partialText && (
-              <div style={{ marginBottom: 8, padding: '4px 0' }}>
-                <Text type="secondary" style={{ fontSize: 11, fontFamily: 'monospace', marginRight: 6 }}>
-                  {formatTimestamp(recordDuration)}
-                </Text>
-                <Text style={{ fontSize: 14, lineHeight: 1.7, color: token.colorPrimary }}>
-                  {partialText}
-                  {!sourcePaused && <span style={{ opacity: 0.5, animation: 'blink 1s infinite' }}>▎</span>}
-                </Text>
-              </div>
-            )}
-            {!partialText && !sourcePaused && segments.length > 0 && (
-              <Text type="secondary" style={{ fontSize: 11, opacity: 0.5 }}>
-                <ThunderboltOutlined /> {t('voice.realtimeListening')}
-              </Text>
-            )}
-          </>
-        )
-      }
-
       return (
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           {/* 紧凑状态栏 */}
@@ -1374,7 +1495,7 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
               <RecordingLevelMeter paused={isPaused} />
               <div>
                 <div style={{ fontFamily: 'monospace', fontSize: 20, fontWeight: 700, lineHeight: 1.2 }}>
-                  {formatDuration(recordDuration)}
+                  <RecordingTimer />
                 </div>
                 <Text type="secondary" style={{ fontSize: 12 }}>
                   {isPaused
@@ -1438,101 +1559,16 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
 
           {/* 主体区：字幕 + 手动纪要，左右分栏 */}
           <div style={{ display: 'flex', gap: 12, height: 380 }}>
-            {/* 字幕区 */}
-            <div
-              ref={setTranscriptScrollRef}
-              style={{
-                flex: 1, minWidth: 0, overflowY: 'auto', padding: '16px 20px',
-                background: token.colorBgContainer, borderRadius: 10,
-                border: `1px solid ${token.colorBorderSecondary}`,
-              }}
-            >
-              {isPreparing ? (
-                /* 识别模型加载中 */
-                <div style={{ textAlign: 'center', paddingTop: 60 }}>
-                  <LoadingOutlined style={{ fontSize: 24, marginBottom: 12, color: token.colorPrimary }} />
-                  <Text type="secondary" style={{ display: 'block', fontSize: 13 }}>
-                    {t('voice.preparingModel')}
-                  </Text>
-                </div>
-              ) : realtimeError ? (
-                <Text type="warning" style={{ fontSize: 13 }}>
-                  <ExclamationCircleOutlined /> {realtimeError}
-                </Text>
-              ) : isDualSource ? (
-                /* 双源模式：分栏显示 */
-                <div style={{ display: 'flex', gap: 16 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{
-                      fontSize: 12, fontWeight: 600, marginBottom: 8, paddingBottom: 4,
-                      borderBottom: `1px solid ${token.colorBorderSecondary}`,
-                      color: micPaused ? token.colorTextDisabled : token.colorPrimary,
-                    }}>
-                      🎤 {t('voice.micSource')} {micPaused && `(${t('voice.recordingPaused')})`}
-                    </div>
-                    {renderSourceTranscript('mic', micPaused)}
-                  </div>
-                  <div style={{ width: 1, background: token.colorBorderSecondary, alignSelf: 'stretch' }} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{
-                      fontSize: 12, fontWeight: 600, marginBottom: 8, paddingBottom: 4,
-                      borderBottom: `1px solid ${token.colorBorderSecondary}`,
-                      color: systemPaused ? token.colorTextDisabled : '#52c41a',
-                    }}>
-                      🔊 {t('voice.systemSource')} {systemPaused && `(${t('voice.recordingPaused')})`}
-                    </div>
-                    {renderSourceTranscript('system', systemPaused)}
-                  </div>
-                </div>
-              ) : (
-                /* 单源模式 */
-                <>
-                  {!realtimeText && realtimeSegments.length === 0 ? (
-                    <div style={{ textAlign: 'center', paddingTop: 60 }}>
-                      <Text type="secondary" style={{ fontSize: 13 }}>
-                        {taskSttMode === 'local'
-                          ? <><ThunderboltOutlined /> {t('voice.realtimeRecognizing')}</>
-                          : t('voice.recordingNoRealtime')}
-                      </Text>
-                    </div>
-                  ) : (
-                    <>
-                      {realtimeSegments.map((seg, idx) => (
-                        <div key={idx} style={{
-                          marginBottom: 12,
-                          padding: '6px 0',
-                          borderBottom: idx < realtimeSegments.length - 1 || realtimeText.slice(realtimeSegments.map(s => s.text).join('').length)
-                            ? `1px solid ${token.colorBorderSecondary}`
-                            : 'none',
-                        }}>
-                          <Text type="secondary" style={{ fontSize: 12, fontFamily: 'monospace', marginRight: 8 }}>
-                            {formatTimestampRange(seg.start, seg.end)}
-                          </Text>
-                          <Text style={{ fontSize: 15, lineHeight: 1.8 }}>
-                            {seg.text}
-                          </Text>
-                        </div>
-                      ))}
-                      {(() => {
-                        const completedText = realtimeSegments.map(s => s.text).join('')
-                        const partialText = realtimeText.slice(completedText.length)
-                        return partialText ? (
-                          <div style={{ marginBottom: 12, padding: '6px 0' }}>
-                            <Text type="secondary" style={{ fontSize: 12, fontFamily: 'monospace', marginRight: 8 }}>
-                              {formatTimestamp(recordDuration)}
-                            </Text>
-                            <Text style={{ fontSize: 15, lineHeight: 1.8, color: token.colorPrimary }}>
-                              {partialText}
-                              {!isPaused && <span style={{ opacity: 0.5, animation: 'blink 1s infinite' }}>▎</span>}
-                            </Text>
-                          </div>
-                        ) : null
-                      })()}
-                    </>
-                  )}
-                </>
-              )}
-            </div>
+            {/* 字幕区（独立组件订阅实时识别结果，避免 10~20fps 识别结果重渲染整页） */}
+            <RealtimeTranscriptPanel
+              isDualSource={isDualSource}
+              isPaused={isPaused}
+              micPaused={micPaused}
+              systemPaused={systemPaused}
+              isPreparing={isPreparing}
+              realtimeError={realtimeError}
+              taskSttMode={taskSttMode}
+            />
             {/* 手动纪要区 */}
             <div style={{
               width: 300, flexShrink: 0, display: 'flex', flexDirection: 'column',
@@ -1563,8 +1599,10 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
       )
     }
 
-    // 录音中断恢复（如页面刷新后 task 状态仍为 recording）
-    if (task.status === 'recording' && !isRecording) {
+    // 录音中断恢复（如页面刷新后 task 状态仍为 recording）。
+    // 排除正在停止保存中的任务：此时录音已停但音频仍在异步转码/落盘、DB 状态尚未更新为 recorded，
+    // 若不排除会把正常的停止过程误报为"录音已中断"。
+    if (task.status === 'recording' && !isRecording && stoppingTaskId !== task.id) {
       return (
         <div style={{ textAlign: 'center', padding: '40px 20px' }}>
           <ExclamationCircleOutlined style={{ fontSize: 48, color: token.colorWarning, marginBottom: 16 }} />
@@ -1841,8 +1879,6 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
                   menu={{
                     items: [
                       { key: 'meeting_minutes', label: t('voice.minutesType_meeting_minutes'), icon: <ProfileOutlined /> },
-                      { key: 'summary', label: t('voice.minutesType_summary'), icon: <FileTextOutlined /> },
-                      { key: 'action_items', label: t('voice.minutesType_action_items'), icon: <CheckCircleOutlined /> },
                       { type: 'divider' as const },
                       { key: 'custom', label: t('voice.minutesType_custom'), icon: <EditOutlined /> },
                     ],
@@ -1862,12 +1898,12 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
                           cancelText: t('common.cancel'),
                           onOk: async () => {
                             if (customPrompt) {
-                              await handleGenerateMinutes(task, 'custom', customPrompt)
+                              await handleGenerateMinutes(task, customPrompt)
                             }
                           },
                         })
                       } else {
-                        handleGenerateMinutes(task, key)
+                        handleGenerateMinutes(task)
                       }
                     },
                   }}

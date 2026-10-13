@@ -117,7 +117,7 @@ export const voice = {
   transcribe: (params: { taskId: string; language?: string }) =>
     invoke<VoiceTask | { error: string }>('transcribe', params),
   cancelTranscribe: (taskId: string) => invoke<{ success: boolean }>('cancel-transcribe', taskId),
-  generateMinutes: (params: { taskId: string; minutesType: string; customPrompt?: string }) =>
+  generateMinutes: (params: { taskId: string; customPrompt?: string }) =>
     invoke<VoiceTask | { error: string }>('generate-minutes', params),
   cancelMinutes: (taskId: string) => invoke<{ success: boolean }>('cancel-minutes', taskId),
 

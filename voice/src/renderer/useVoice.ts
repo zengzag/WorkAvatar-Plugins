@@ -218,12 +218,12 @@ export function useVoice() {
     }
   }, [])
 
-  const generateMinutes = useCallback(async (taskId: string, minutesType: string, customPrompt?: string) => {
+  const generateMinutes = useCallback(async (taskId: string, customPrompt?: string) => {
     try {
       // 乐观更新：立即进入 generating_minutes 状态，让进度条和流式渲染立即生效
       // 否则前端 task.status 仍是旧值（如 completed），isBusy 判断失效，用户看不到反馈
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'generating_minutes' } : t))
-      const result = await voice.generateMinutes({ taskId, minutesType, customPrompt })
+      const result = await voice.generateMinutes({ taskId, customPrompt })
       if (result && (result as any).error) {
         throw new Error((result as any).error)
       }

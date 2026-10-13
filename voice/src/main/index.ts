@@ -111,10 +111,10 @@ function registerIpc(ctx: PluginContext): void {
     return { success: true }
   })
 
-  // ==================== 会议纪要生成 ====================
-  ctx.ipc.handle('generate-minutes', async (params: { taskId: string; minutesType: string; customPrompt?: string }) => {
+  // ==================== 会议纪要生成（内置固定会议纪要，另支持自定义要求） ====================
+  ctx.ipc.handle('generate-minutes', async (params: { taskId: string; customPrompt?: string }) => {
     try {
-      const result = await s.generateMinutes(params.taskId, params.minutesType, params.customPrompt)
+      const result = await s.generateMinutes(params.taskId, params.customPrompt)
       try { return structuredClone(result) } catch { return JSON.parse(JSON.stringify(result)) }
     } catch (err: any) {
       ctx.services.logger.error(`IPC handler error [voice:generate-minutes]:`, err?.message || err)
