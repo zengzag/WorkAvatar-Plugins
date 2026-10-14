@@ -642,6 +642,12 @@ class OutlookSyncService {
     return { isReminderOn: true, reminderMinutesBeforeStart: minutes }
   }
 
+  /** TODO 是否「全天」（未指定具体时间）：UI 未填截止时间时默认落到当天 23:59 */
+  private isAllDayTodo(todo: CalendarTodo): boolean {
+    if (!todo.due_at) return false
+    return this.toGraphDateTime(todo.due_at, todo.tzid).dateTime.endsWith('T23:59:00')
+  }
+
   /**
    * 本地 RecurrenceRule → Graph patternedRecurrence。
    * bysetpos / rdates / 多值 bymonthday、实例级 overrides（单实例取消/修改）不精细同步，仅同步主规则。
@@ -739,9 +745,13 @@ class OutlookSyncService {
     // Graph 要求 completedDateTime 仅当 status=completed 时存在，否则 400
     if (todo.status === 'completed' && todo.completed_at) body.completedDateTime = this.toGraphDateTime(todo.completed_at, tz)
 
-    // To Do 提醒基于截止时间；提醒时刻已过去则不设置
+    // To Do 提醒（Graph 仅支持单个、以绝对时刻表示）：时间对齐到「到期时间」。
+    // 「全天」（未填具体时间，UI 默认当天 23:59）没有有效时刻，退化为取最晚的一个本地提醒时刻；
+    // 提醒时刻已过去则不设置。
     if (todo.reminders?.length && todo.due_at) {
-      const offsetMin = Math.max(...todo.reminders.map(r => Math.abs(r)))
+      const offsetMin = this.isAllDayTodo(todo)
+        ? Math.min(...todo.reminders.map(r => Math.abs(r)))
+        : 0
       const remindAt = todo.due_at - offsetMin * 60
       if (remindAt > Math.floor(Date.now() / 1000)) {
         body.isReminderOn = true
