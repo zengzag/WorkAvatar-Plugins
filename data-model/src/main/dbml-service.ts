@@ -37,48 +37,60 @@ interface DbmlEnum {
   values: { name: string; note?: string }[]
 }
 
+/**
+ * 按 id 升序取出归一化模型中的元素。
+ * 不能直接用 Object.values：这些 map 只有数字索引签名，TS 会退化为 any[]（丢失元素类型）。
+ */
+function entriesById<T>(map: { [id: number]: T }): T[] {
+  return Object.keys(map).map((key) => map[Number(key)])
+}
+
 function parseDbml(dbml: string): { tables: DbmlTable[]; refs: DbmlRef[]; enums: DbmlEnum[] } {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const db: any = Parser.parse(dbml, 'dbml')
-  const schemas = db.schemas ?? []
-  const tables: DbmlTable[] = []
-  const refs: DbmlRef[] = []
-  const enums: DbmlEnum[] = []
-  for (const schema of schemas) {
-    for (const table of schema.tables ?? []) {
-      const fields: DbmlField[] = (table.fields ?? []).map((f: any) => ({
+  // @dbml/core 10.x：Parser.parse 返回模型对象，normalize() 得到按 id 索引的纯数据模型
+  const model = Parser.parse(dbml, 'dbml').normalize()
+  const schemaNameOf = (schemaId: number): string | undefined => {
+    const name = model.schemas[schemaId]?.name
+    return name && name !== 'public' ? name : undefined
+  }
+
+  const tables: DbmlTable[] = entriesById(model.tables).map((table) => ({
+    name: table.name,
+    schema: schemaNameOf(table.schemaId),
+    note: table.note ?? undefined,
+    fields: table.fieldIds
+      .map((id) => model.fields[id])
+      .filter(Boolean)
+      .map((f) => ({
         name: f.name,
-        type: f.type?.type_name ?? String(f.type ?? 'varchar'),
+        type: f.type?.type_name ?? 'varchar',
         pk: f.pk,
         unique: f.unique,
         not_null: f.not_null,
         increment: f.increment,
-        default: f.default != null ? String(f.default) : undefined,
-        note: f.note?.text
-      }))
-      tables.push({
-        name: table.name,
-        schema: schema.name !== 'public' ? schema.name : undefined,
-        note: table.note?.text,
-        fields
-      })
+        default: f.dbdefault != null ? String(f.dbdefault.value) : undefined,
+        note: f.note ?? undefined,
+      })),
+  }))
+
+  const refs: DbmlRef[] = entriesById(model.refs).map((ref) => {
+    const endpoints = ref.endpointIds.map((id) => model.endpoints[id])
+    return {
+      name: ref.name ?? undefined,
+      from: { table: endpoints[0]?.tableName ?? '', field: endpoints[0]?.fieldNames?.[0] ?? '' },
+      to: { table: endpoints[1]?.tableName ?? '', field: endpoints[1]?.fieldNames?.[0] ?? '' },
+      from_cardinality: endpoints[0]?.relation,
+      to_cardinality: endpoints[1]?.relation,
     }
-    for (const ref of schema.refs ?? []) {
-      refs.push({
-        name: ref.name,
-        from: { table: ref.endpoints?.[0]?.tableName ?? '', field: ref.endpoints?.[0]?.fieldNames?.[0] ?? '' },
-        to: { table: ref.endpoints?.[1]?.tableName ?? '', field: ref.endpoints?.[1]?.fieldNames?.[0] ?? '' },
-        from_cardinality: ref.endpoints?.[0]?.relation,
-        to_cardinality: ref.endpoints?.[1]?.relation
-      })
-    }
-    for (const enumDef of schema.enums ?? []) {
-      enums.push({
-        name: enumDef.name,
-        values: (enumDef.values ?? []).map((v: any) => ({ name: v.name, note: v.note?.text }))
-      })
-    }
-  }
+  })
+
+  const enums: DbmlEnum[] = entriesById(model.enums).map((enumDef) => ({
+    name: enumDef.name,
+    values: enumDef.valueIds
+      .map((id) => model.enumValues[id])
+      .filter(Boolean)
+      .map((v) => ({ name: v.name, note: v.note ?? undefined })),
+  }))
+
   return { tables, refs, enums }
 }
 
@@ -92,12 +104,13 @@ const DBML_TYPE_MAP: Record<string, FieldType> = {
 }
 
 function mapDbmlType(raw: string): { type: FieldType; length: string | null } {
-  const normalized = raw.trim().toLowerCase()
-  const m = normalized.match(/^([a-z]+)\s*\((\d+)\)$/)
-  if (m) {
-    return { type: DBML_TYPE_MAP[m[1]] ?? 'custom', length: m[2] }
+  // @dbml/core 10.x 的 type_name 带参数（如 varchar(50)、numeric(10,2)）：取基名映射，单数字参数保留长度
+  const base = raw.split('(')[0].trim().toLowerCase()
+  const args = /\(([^)]*)\)/.exec(raw)?.[1]?.trim()
+  return {
+    type: DBML_TYPE_MAP[base] ?? 'custom',
+    length: args && /^\d+$/.test(args) ? args : null,
   }
-  return { type: DBML_TYPE_MAP[normalized] ?? 'custom', length: null }
 }
 
 function mapCardinality(raw?: string): 'one' | 'many' {

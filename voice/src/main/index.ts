@@ -21,6 +21,15 @@ let voiceService: VoiceService | null = null
 let localSTT: LocalSTTService | null = null
 let subtitleWindow: SubtitleWindowService | null = null
 
+// Electron 43 起：对话框未传 defaultPath 时固定初始到「下载」，且系统不再记忆上次目录，这里自行记忆
+let lastDialogDir: string | undefined
+/** 记录本次选择结果所在目录（取消则忽略） */
+function rememberDialogDir(pickedPath?: string): void {
+  if (!pickedPath) return
+  const dir = require('path').dirname(pickedPath)
+  if (dir && dir !== '.' && dir !== pickedPath) lastDialogDir = dir
+}
+
 export function activate(ctx: PluginContext): void {
   localSTT = LocalSTTService.getInstance(ctx)
   subtitleWindow = SubtitleWindowService.getInstance(ctx)
@@ -154,11 +163,13 @@ function registerIpc(ctx: PluginContext): void {
   // ==================== 选择目录对话框 ====================
   ctx.ipc.handle('select-directory', async () => {
     const result = await dialog.showOpenDialog({
+      defaultPath: lastDialogDir,
       properties: ['openDirectory'],
     })
     if (result.canceled || result.filePaths.length === 0) {
       return null
     }
+    rememberDialogDir(result.filePaths[0])
     return result.filePaths[0]
   })
 

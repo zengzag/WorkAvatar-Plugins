@@ -5,8 +5,8 @@
   "description": "AI 助手集插件依赖声明（仅用宿主共享库，无额外运行时依赖）",
   "dependencies": {},
   "devDependencies": {
-    "@ant-design/icons": "^6.2.2",
-    "antd": "^6.3.7",
-    "react": "^19.2.5"
+    "@ant-design/icons": "^6.3.4",
+    "antd": "^6.6.6",
+    "react": "^19.3.1"
   }
 }

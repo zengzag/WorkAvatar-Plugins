@@ -4,13 +4,13 @@
   "private": true,
   "description": "数据模型插件依赖声明",
   "dependencies": {
-    "@dbml/core": "^8.3.1-custom-metadata.3",
-    "@xyflow/react": "^12.11.2",
-    "zustand": "^5.0.13"
+    "@dbml/core": "^10.3.1",
+    "@xyflow/react": "^12.12.0",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
-    "@ant-design/icons": "^6.2.2",
-    "antd": "^6.3.7",
-    "react": "^19.2.5"
+    "@ant-design/icons": "^6.3.4",
+    "antd": "^6.6.6",
+    "react": "^19.3.1"
   }
 }

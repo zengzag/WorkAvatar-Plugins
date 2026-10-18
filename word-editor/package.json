@@ -5,11 +5,11 @@
   "description": "Word 文档编辑器插件依赖声明",
   "dependencies": {
     "@forevka/wordcanvas": "^0.12.0",
-    "zustand": "^5.0.13"
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
-    "@ant-design/icons": "^6.2.2",
-    "antd": "^6.3.7",
-    "react": "^19.2.5"
+    "@ant-design/icons": "^6.3.4",
+    "antd": "^6.6.6",
+    "react": "^19.3.1"
   }
 }

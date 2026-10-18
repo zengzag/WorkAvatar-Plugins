@@ -16,6 +16,20 @@ import { createCalendarTools } from './tools'
 let scheduler: CalendarScheduler | null = null
 let outlookSync: ReturnType<typeof getOutlookSyncService> | null = null
 
+// Electron 43 起：对话框未传 defaultPath 时固定初始到「下载」，且系统不再记忆上次目录，这里自行记忆
+let lastDialogDir: string | undefined
+/** 解析对话框初始路径：优先「上次使用的目录 + 建议文件名」 */
+function dialogDefaultPath(fileName?: string): string | undefined {
+  if (!lastDialogDir) return fileName
+  return fileName ? require('path').join(lastDialogDir, fileName) : lastDialogDir
+}
+/** 记录本次选择结果所在目录（取消则忽略） */
+function rememberDialogDir(pickedPath?: string): void {
+  if (!pickedPath) return
+  const dir = require('path').dirname(pickedPath)
+  if (dir && dir !== '.' && dir !== pickedPath) lastDialogDir = dir
+}
+
 export function activate(ctx: PluginContext): void {
   const calendar = getCalendarService(ctx)
   const auth = getOutlookAuthService(ctx)
@@ -175,10 +189,11 @@ function registerIpc(ctx: PluginContext): void {
     const data = calendar.exportData()
     const res = await dialog.showSaveDialog({
       title: i18n.t('calendar.exportDialogTitle'),
-      defaultPath: `calendar-export-${new Date().toISOString().slice(0, 10)}.json`,
+      defaultPath: dialogDefaultPath(`calendar-export-${new Date().toISOString().slice(0, 10)}.json`),
       filters: [{ name: 'JSON', extensions: ['json'] }],
     })
     if (res.canceled || !res.filePath) return { ok: false, canceled: true }
+    rememberDialogDir(res.filePath)
     const fs = require('fs')
     fs.writeFileSync(res.filePath, JSON.stringify(data, null, 2), 'utf-8')
     return { ok: true, path: res.filePath, events: data.events.length, todos: data.todos.length }
@@ -188,10 +203,12 @@ function registerIpc(ctx: PluginContext): void {
     const { dialog } = require('electron')
     const res = await dialog.showOpenDialog({
       title: i18n.t('calendar.importDialogTitle'),
+      defaultPath: dialogDefaultPath(),
       properties: ['openFile'],
       filters: [{ name: 'JSON', extensions: ['json'] }],
     })
     if (res.canceled || !res.filePaths[0]) return { ok: false, canceled: true }
+    rememberDialogDir(res.filePaths[0])
     const fs = require('fs')
     try {
       const raw = JSON.parse(fs.readFileSync(res.filePaths[0], 'utf-8'))

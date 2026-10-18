@@ -1,16 +1,16 @@
 {
   "name": "workavatar-plugin-calendar",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "private": true,
   "description": "日历与待办插件依赖声明",
   "dependencies": {
-    "dayjs": "^1.11.20",
-    "zustand": "^5.0.13"
+    "dayjs": "^1.11.23",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
-    "@ant-design/icons": "^6.2.2",
-    "antd": "^6.3.7",
-    "react": "^19.2.5",
-    "react-i18next": "^17.0.7"
+    "@ant-design/icons": "^6.3.4",
+    "antd": "^6.6.6",
+    "react": "^19.3.1",
+    "react-i18next": "^17.1.0"
   }
 }

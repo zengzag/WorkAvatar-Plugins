@@ -32,18 +32,35 @@ function createDocId(): string {
   return `doc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
 }
 
+// Electron 43 起：对话框未传 defaultPath 时固定初始到「下载」，且系统不再记忆上次目录，这里自行记忆
+let lastDialogDir: string | undefined
+/** 解析对话框初始路径：优先「上次使用的目录 + 建议文件名」 */
+function dialogDefaultPath(fileName?: string): string | undefined {
+  if (!lastDialogDir) return fileName
+  return fileName ? path.join(lastDialogDir, fileName) : lastDialogDir
+}
+/** 记录本次选择结果所在目录（取消则忽略） */
+function rememberDialogDir(pickedPath?: string): void {
+  if (!pickedPath) return
+  const dir = path.dirname(pickedPath)
+  if (dir && dir !== '.' && dir !== pickedPath) lastDialogDir = dir
+}
+
 /** 弹框选择 .docx；用户取消返回 null */
 async function pickDocxPath(): Promise<string | null> {
   const { dialog } = require('electron')
   const res = await dialog.showOpenDialog({
     title: t('dialog.importDocx'),
+    defaultPath: dialogDefaultPath(),
     properties: ['openFile'],
     filters: [
       { name: t('dialog.docxFilter'), extensions: ['docx'] },
       { name: 'All', extensions: ['*'] },
     ],
   })
-  return res.canceled || !res.filePaths[0] ? null : res.filePaths[0]
+  if (res.canceled || !res.filePaths[0]) return null
+  rememberDialogDir(res.filePaths[0])
+  return res.filePaths[0]
 }
 
 function registerIpc(ctx: PluginContext): void {
@@ -126,12 +143,13 @@ function registerIpc(ctx: PluginContext): void {
     const { dialog } = require('electron')
     const res = await dialog.showSaveDialog({
       title: ext === 'pdf' ? t('dialog.exportPdf') : t('dialog.exportDocx'),
-      defaultPath: `${title || 'document'}.${ext}`,
+      defaultPath: dialogDefaultPath(`${title || 'document'}.${ext}`),
       filters: ext === 'pdf'
         ? [{ name: t('dialog.pdfFilter'), extensions: ['pdf'] }]
         : [{ name: t('dialog.docxFilter'), extensions: ['docx'] }],
     })
     if (res.canceled || !res.filePath) return { ok: false }
+    rememberDialogDir(res.filePath)
     try {
       fs.writeFileSync(res.filePath, Buffer.from(bytes))
       return { ok: true, path: res.filePath }

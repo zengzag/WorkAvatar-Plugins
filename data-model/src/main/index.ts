@@ -13,6 +13,20 @@ let ctxRef: PluginContext | null = null
 const activeAborts = new Map<string, Set<AbortController>>()
 let unsubscribeEvents: Array<() => void> = []
 
+// Electron 43 起：对话框未传 defaultPath 时固定初始到「下载」，且系统不再记忆上次目录，这里自行记忆
+let lastDialogDir: string | undefined
+/** 解析对话框初始路径：优先「上次使用的目录 + 建议文件名」 */
+function dialogDefaultPath(fileName?: string): string | undefined {
+  if (!lastDialogDir) return fileName
+  return fileName ? path.join(lastDialogDir, fileName) : lastDialogDir
+}
+/** 记录本次选择结果所在目录（取消则忽略） */
+function rememberDialogDir(pickedPath?: string): void {
+  if (!pickedPath) return
+  const dir = path.dirname(pickedPath)
+  if (dir && dir !== '.' && dir !== pickedPath) lastDialogDir = dir
+}
+
 // 数据模型对话专用系统提示词：指导 agent 使用分层协议编辑当前模型
 const DATA_MODEL_SYSTEM_PROMPT = `你是一个数据建模助手，正在帮助用户创建和编辑一个数据模型（ER 图）。
 
@@ -183,10 +197,11 @@ function registerIpc(ctx: PluginContext): void {
     const { dialog } = require('electron')
     const res = await dialog.showSaveDialog({
       title: t('dialog.exportModel'),
-      defaultPath: `${model.name || 'model'}.dmv.json`,
+      defaultPath: dialogDefaultPath(`${model.name || 'model'}.dmv.json`),
       filters: [{ name: t('dialog.modelFileFilter'), extensions: ['dmv.json', 'json'] }]
     })
     if (res.canceled || !res.filePath) return { ok: false }
+    rememberDialogDir(res.filePath)
     const fs = require('fs')
     fs.writeFileSync(res.filePath, JSON.stringify({ version: 1, model, updatedAt: Date.now() }, null, 2), 'utf-8')
     return { ok: true, path: res.filePath }
@@ -196,11 +211,13 @@ function registerIpc(ctx: PluginContext): void {
     const { dialog } = require('electron')
     const res = await dialog.showOpenDialog({
       title: t('dialog.importModel'),
+      defaultPath: dialogDefaultPath(),
       properties: ['openFile'],
       filters: [{ name: t('dialog.modelFileFilter'), extensions: ['dmv.json', 'json'] }]
     })
     // 用户取消：渲染端仅据 model 判定结果，无需错误文案
     if (res.canceled || !res.filePaths[0]) return {}
+    rememberDialogDir(res.filePaths[0])
     const fs = require('fs')
     try {
       const raw = JSON.parse(fs.readFileSync(res.filePaths[0], 'utf-8'))
