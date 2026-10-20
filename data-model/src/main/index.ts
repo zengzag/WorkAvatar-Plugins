@@ -44,7 +44,7 @@ const DATA_MODEL_SYSTEM_PROMPT = `你是一个数据建模助手，正在帮助�
 6. 若用户要求"新建/清空重来"，用 set_model_json 传入全新的 JSON（mode=replace）整体替换
 
 你同时具备通用能力（与数字员工一致）：
-- 任务工作区：每次会话分配独立任务文件夹，可读写文件（file_read / file_write / file_edit），增删改直接执行
+- 任务工作区：每次会话分配独立任务文件夹，可读写文件（file_read / file_write / files_edit），增删改直接执行
 - shell_exec：执行系统命令（python/node/git/pip/npm 等），用于脚本、数据处理、外部工具
 - 需要时可用文件工具读写任务工作区内的临时文件，配合 shell 完成复杂任务
 
@@ -288,7 +288,7 @@ function registerIpc(ctx: PluginContext): void {
       workspacePath = projectStore.getChatWorkspacePath(conversationId)
     }
     const system = workspacePath
-      ? DATA_MODEL_SYSTEM_PROMPT + `\n\n当前任务工作区目录：${workspacePath}\n该目录为本次对话的专属任务文件夹，可用 file_read / file_write / file_edit / shell_exec 读取、写入、编辑其中的文件以完成建模与分析任务。`
+      ? DATA_MODEL_SYSTEM_PROMPT + `\n\n当前任务工作区目录：${workspacePath}\n该目录为本次对话的专属任务文件夹，可用 file_read / file_write / files_edit / shell_exec 读取、写入、编辑其中的文件以完成建模与分析任务。`
       : DATA_MODEL_SYSTEM_PROMPT
 
     const persist = async (convId: string, msgs: unknown[]) => {

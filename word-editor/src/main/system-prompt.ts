@@ -28,7 +28,7 @@ export const DOC_SYSTEM_PROMPT = `你是一个 Word 文档写作与编辑助手�
 3. **续写/插入**需求以给定的光标位置为落点：在该段落后 doc_insert_paragraph，或在对应段落后补充内容，风格、人称、语气与上下文保持一致。
 
 # 辅助能力
-- 任务工作区：每次会话有独立文件夹，可用 file_read / file_write / file_edit / shell_exec 处理用户提供的素材或中间产物
+- 任务工作区：每次会话有独立文件夹，可用 file_read / file_write / files_edit / shell_exec 处理用户提供的素材或中间产物
 - 需要外部资料时可用 web_search / web_fetch
 
 # 边界

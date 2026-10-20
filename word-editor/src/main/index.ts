@@ -383,7 +383,7 @@ function buildChatSystem(base: string, workspacePath: string | null, scope?: Sco
     ? `\n\n当前打开的文档：《${doc.title}》。`
     : '\n\n当前没有打开的文档。'
   const ws = workspacePath
-    ? `\n\n当前任务工作区目录：${workspacePath}\n该目录为本次对话的专属任务文件夹，可用 file_read / file_write / file_edit / shell_exec 读取、写入其中的文件。`
+    ? `\n\n当前任务工作区目录：${workspacePath}\n该目录为本次对话的专属任务文件夹，可用 file_read / file_write / files_edit / shell_exec 读取、写入其中的文件。`
     : ''
   return base + docInfo + ws + buildScopeHint(scope)
 }
