@@ -83,7 +83,7 @@ export interface VoiceUpdateTaskParams {
 }
 
 export interface VoiceSettings {
-  sttMode: 'api' | 'local'
+  sttMode: 'api' | 'local' | 'record'
   apiConfig: {
     endpoint: string
     apiKey: string
@@ -378,6 +378,9 @@ class VoiceService {
     }
 
     const settings = this.getSettings()
+    if (settings.sttMode === 'record') {
+      throw new Error(this.ctx.services.i18n.t('errors.recordOnlyMode'))
+    }
     const isApi = settings.sttMode === 'api'
     const lang = language || (isApi ? settings.apiConfig.language : settings.localConfig.language) || 'zh'
 

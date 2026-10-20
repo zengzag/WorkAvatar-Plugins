@@ -116,7 +116,13 @@ const KMSVoiceSettings: React.FC<KMSVoiceSettingsProps> = ({
       <Card size="small" style={cardStyle}>
         <SettingsItem
           title={t('voice.sttEngine')}
-          description={localSettings.sttMode === 'api' ? t('voice.sttModeApiHint') : t('voice.sttModeLocalHint')}
+          description={
+            localSettings.sttMode === 'api'
+              ? t('voice.sttModeApiHint')
+              : localSettings.sttMode === 'record'
+                ? t('voice.sttModeRecordHint')
+                : t('voice.sttModeLocalHint')
+          }
           extra={
             <Radio.Group
               value={localSettings.sttMode}
@@ -126,6 +132,7 @@ const KMSVoiceSettings: React.FC<KMSVoiceSettingsProps> = ({
             >
               <Radio.Button value="local"><DesktopOutlined /> {t('voice.sttModeLocal')}</Radio.Button>
               <Radio.Button value="api"><CloudServerOutlined /> {t('voice.sttModeApi')}</Radio.Button>
+              <Radio.Button value="record"><AudioOutlined /> {t('voice.sttModeRecord')}</Radio.Button>
             </Radio.Group>
           }
         />

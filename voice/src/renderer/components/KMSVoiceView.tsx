@@ -221,7 +221,7 @@ interface RealtimeTranscriptPanelProps {
   systemPaused: boolean
   isPreparing: boolean
   realtimeError: string
-  taskSttMode: 'local' | 'api'
+  taskSttMode: 'local' | 'api' | 'record'
 }
 
 /**
@@ -454,12 +454,12 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
   const [stoppingTaskId, setStoppingTaskId] = useState<string | null>(null)
   const [recordSource, setRecordSource] = useState<RecordSource>('mic')
   /** 每个任务的 STT 引擎模式（优先于全局设置） */
-  const [taskSttMode, setTaskSttMode] = useState<'local' | 'api'>(() => (settings?.sttMode as 'local' | 'api') || 'local')
+  const [taskSttMode, setTaskSttMode] = useState<'local' | 'api' | 'record'>(() => (settings?.sttMode as 'local' | 'api' | 'record') || 'local')
 
   // 全局设置变化时同步任务级别默认值
   useEffect(() => {
     if (settings?.sttMode) {
-      setTaskSttMode(settings.sttMode as 'local' | 'api')
+      setTaskSttMode(settings.sttMode as 'local' | 'api' | 'record')
     }
   }, [settings?.sttMode])
   // 音频电平/录音时长/实时识别文本等高频状态写入全局 store，
@@ -1357,6 +1357,10 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
       onOpenSettings?.()
       return
     }
+    if (taskSttMode === 'record') {
+      message.warning(t('errors.recordOnlyMode'))
+      return
+    }
     try {
       await transcribe(task.id, taskSttMode === 'api' ? settings.apiConfig.language : settings.localConfig.language)
     } catch (err: any) {
@@ -1638,10 +1642,11 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
               size="small"
               style={{ width: 140 }}
               value={taskSttMode}
-              onChange={(val) => setTaskSttMode(val as 'local' | 'api')}
+              onChange={(val) => setTaskSttMode(val as 'local' | 'api' | 'record')}
               options={[
                 { label: <span><DesktopOutlined /> {t('voice.sttModeLocal')}</span>, value: 'local' },
                 { label: <span><CloudServerOutlined /> {t('voice.sttModeApi')}</span>, value: 'api' },
+                { label: <span><AudioOutlined /> {t('voice.sttModeRecord')}</span>, value: 'record' },
               ]}
             />
           </div>

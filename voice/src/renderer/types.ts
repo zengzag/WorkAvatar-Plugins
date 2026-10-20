@@ -34,7 +34,7 @@ export interface TranscriptSegment {
 
 /** 语音设置 */
 export interface VoiceSettings {
-  sttMode: 'api' | 'local'
+  sttMode: 'api' | 'local' | 'record'
   apiConfig: {
     endpoint: string
     apiKey: string
