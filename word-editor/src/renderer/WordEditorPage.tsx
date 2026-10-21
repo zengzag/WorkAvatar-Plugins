@@ -108,7 +108,7 @@ export function WordEditorPage() {
   // 安装 AI 文档操作宿主（主进程工具 → 当前编辑器）
   useEffect(() => installDocOpHost(), [])
 
-  // 消费 FileViewerModal "编辑文档"跳转携带的 ?import=<path>
+  // 消费 FilePreview "编辑文档"跳转携带的 ?import=<path>
   useEffect(() => {
     const hash = typeof window !== 'undefined' ? window.location.hash : ''
     const qIndex = hash.indexOf('?')
