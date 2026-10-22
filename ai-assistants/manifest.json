@@ -1,9 +1,9 @@
 {
   "id": "ai-assistants",
   "name": "AI 助手集",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "engine": ">=0.2.0",
-  "description": "在同一个窗口内以单栏、双栏或标签页方式打开豆包、DeepSeek 等 AI 网页版，各站点独立持久化登录态，便于多智能体对照使用",
+  "description": "在同一个窗口内以单栏、双栏或标签页方式打开豆包、DeepSeek 等 AI 网页版，支持添加任意自定义 https 网页；各站点独立持久化登录态，便于多智能体对照使用",
   "author": "WorkAvatar",
   "main": "dist/main/index.cjs",
   "renderer": "dist/renderer/index.js",
@@ -12,6 +12,7 @@
   "capabilities": [
     {
       "domain": "webview",
+      "allowUserOrigins": true,
       "origins": [
         "*.doubao.com",
         "*.deepseek.com",

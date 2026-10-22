@@ -23,7 +23,7 @@ import {
   ReloadOutlined,
   SettingOutlined,
 } from '@ant-design/icons'
-import { WEBVIEW_USER_AGENT, getSiteById, hostnameOf, type AiWebSite } from '../shared/sites'
+import { WEBVIEW_USER_AGENT, hostnameOf, type AiWebSite } from '../shared/sites'
 import { createWebview, type WebviewElement } from './webview'
 import { t, siteName, popupContainer } from './host'
 
@@ -209,7 +209,7 @@ export function WebPane({
       label: (
         <span className="aiweb-menu-item">
           <span className="aiweb-dot" style={{ background: s.color }} />
-          {s.name}
+          {siteName(s)}
         </span>
       ),
     })),
@@ -345,7 +345,7 @@ export function WebPane({
           <div className="aiweb-hint">
             <div className="aiweb-hint-title">{t('pane.blocked.title')}</div>
             <div className="aiweb-hint-text">
-              {t('pane.blocked.text', { site: siteName(getSiteById(siteId)) || siteId })}
+              {t('pane.blocked.text', { site: siteName(site) })}
             </div>
           </div>
         )}

@@ -69,6 +69,7 @@ export function createMockContext(pluginId = 'test-plugin'): {
   events: MockEvents
   dbs: Map<string, DatabaseSync>
   services: PluginServices
+  webview: { allowOrigins: (hosts: string[]) => void }
 } {
   const dbs = new Map<string, DatabaseSync>()
   /** KV 内存实现（storage.get/set/delete/keys 与 shared 共用，可测往返） */
@@ -118,6 +119,11 @@ export function createMockContext(pluginId = 'test-plugin'): {
     publish: (event, payload) => {
       events.publishes.push({ event, payload })
     },
+  }
+
+  /** 运行时内嵌域名注册（宿主侧本次调用整体替换） */
+  const webview = {
+    allowOrigins: vi.fn((_hosts: string[]) => { /* noop */ }),
   }
 
   const services: PluginServices = {
@@ -278,6 +284,7 @@ export function createMockContext(pluginId = 'test-plugin'): {
       keys: async () => Array.from(kv.keys()),
     },
     services,
+    webview,
     contributions: {
       registerAgentTools: contributions.registerAgentTools,
       registerMcpTools: contributions.registerMcpTools,
@@ -289,5 +296,5 @@ export function createMockContext(pluginId = 'test-plugin'): {
     },
   }
 
-  return { ctx, ipc, contributions, events, dbs, services }
+  return { ctx, ipc, contributions, events, dbs, services, webview }
 }

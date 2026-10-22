@@ -8,21 +8,29 @@
  *
  * 页面刻意没有全局顶栏 —— 唯一的常驻 UI 是各栏自己的一行工具条，
  * 视图模式与快捷站点都收进设置，把垂直空间尽量留给网页本身。
+ * 设置里的「添加网页」支持任意 https 自定义网页，与内置站点同等参与三种视图。
  *
- * 状态（模式 / 双栏站点 / 打开的标签页 / 启用的站点）持久化到插件 KV，重开应用恢复现场；
- * 各站点的登录态由 webview 的持久化 partition 承载，与页面状态相互独立。
+ * 状态（模式 / 双栏站点 / 打开的标签页 / 启用的站点 / 自定义网页）持久化到插件 KV，
+ * 重开应用恢复现场；各站点的登录态由 webview 的持久化 partition 承载，与页面状态相互独立。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { PlusOutlined } from '@ant-design/icons'
 import {
   AI_WEB_SITES,
   DEFAULT_LAYOUT,
+  MAX_CUSTOM_SITES,
+  createCustomSiteId,
   createTabId,
+  customSiteColor,
   getSiteById,
   normalizeLayout,
+  parseCustomSiteUrl,
+  resolveAllSites,
   resolveEnabledSites,
+  siteUrlKey,
   type AiWebLayout,
   type AiWebLayoutMode,
+  type AiWebSite,
 } from '../shared/sites'
 import { WebPane } from './WebPane'
 import { TabStrip } from './TabStrip'
@@ -37,6 +45,7 @@ function cloneDefaultLayout(): AiWebLayout {
     panes: [...DEFAULT_LAYOUT.panes] as [string | null, string | null],
     tabs: [],
     enabledSites: [...DEFAULT_LAYOUT.enabledSites],
+    customSites: [],
   }
 }
 
@@ -82,7 +91,10 @@ export function AiWebPage() {
     })
   }, [])
 
-  const enabledSites = useMemo(() => resolveEnabledSites(layout.enabledSites), [layout.enabledSites])
+  const enabledSites = useMemo(
+    () => resolveEnabledSites(layout.enabledSites, layout.customSites),
+    [layout.enabledSites, layout.customSites]
+  )
 
   const switchMode = useCallback(
     (mode: AiWebLayoutMode) => {
@@ -147,8 +159,9 @@ export function AiWebPage() {
         const set = new Set(prev.enabledSites)
         if (enabled) set.add(siteId)
         else set.delete(siteId)
-        // 按站点定义顺序归位，保证菜单顺序稳定
-        const next = AI_WEB_SITES.map((site) => site.id).filter((id) => set.has(id))
+        // 按站点定义顺序归位（内置在前、自定义按添加顺序），保证菜单顺序稳定
+        const order = [...AI_WEB_SITES.map((site) => site.id), ...prev.customSites.map((site) => site.id)]
+        const next = order.filter((id) => set.has(id))
         if (next.length === 0) return prev
         return { ...prev, enabledSites: next }
       })
@@ -170,14 +183,66 @@ export function AiWebPage() {
     [update]
   )
 
-  const resetLayout = useCallback(() => {
-    const next = cloneDefaultLayout()
-    void getBridge()
-      ?.invoke('layout-set', next)
-      .catch(() => {
-        /* 持久化失败可忽略 */
+  /** 添加自定义网页；返回失败原因（由设置面板本地化展示），成功返回 null */
+  const addCustomSite = useCallback(
+    (input: { name: string; url: string }): string | null => {
+      const parsed = parseCustomSiteUrl(input.url)
+      if (!parsed.ok) return parsed.reason
+      if (layout.customSites.length >= MAX_CUSTOM_SITES) return 'max'
+      const key = siteUrlKey(parsed.url)
+      if (resolveAllSites(layout.customSites).some((site) => siteUrlKey(site.url) === key)) {
+        return 'duplicate'
+      }
+      const site: AiWebSite = {
+        id: createCustomSiteId(),
+        name: input.name.trim().slice(0, 40) || parsed.hostname,
+        url: parsed.url,
+        color: customSiteColor(parsed.hostname),
+        custom: true,
+      }
+      update((prev) => ({
+        ...prev,
+        customSites: [...prev.customSites, site],
+        enabledSites: [...prev.enabledSites, site.id],
+      }))
+      return null
+    },
+    [layout.customSites, update]
+  )
+
+  /** 删除自定义网页：同时收起引用它的栏位与标签页，并移出快捷站点 */
+  const removeCustomSite = useCallback(
+    (siteId: string) => {
+      update((prev) => {
+        if (!prev.customSites.some((site) => site.id === siteId)) return prev
+        const customSites = prev.customSites.filter((site) => site.id !== siteId)
+        const panes = prev.panes.map((id) => (id === siteId ? null : id)) as [
+          string | null,
+          string | null,
+        ]
+        const tabs = prev.tabs.filter((tab) => tab.siteId !== siteId)
+        const activeTabId = tabs.some((tab) => tab.id === prev.activeTabId)
+          ? prev.activeTabId
+          : (tabs[0]?.id ?? null)
+        let enabledSites = prev.enabledSites.filter((id) => id !== siteId)
+        if (enabledSites.length === 0) enabledSites = resolveAllSites(customSites).map((site) => site.id)
+        return { ...prev, customSites, panes, tabs, activeTabId, enabledSites }
       })
-    setLayout(next)
+    },
+    [update]
+  )
+
+  const resetLayout = useCallback(() => {
+    setLayout((prev) => {
+      // 只重置布局与快捷站点，保留用户添加的自定义网页，避免误操作丢数据
+      const next: AiWebLayout = { ...cloneDefaultLayout(), customSites: prev.customSites }
+      void getBridge()
+        ?.invoke('layout-set', next)
+        .catch(() => {
+          /* 持久化失败可忽略 */
+        })
+      return next
+    })
   }, [])
 
   const noopSelect = useCallback(() => {}, [])
@@ -210,7 +275,7 @@ export function AiWebPage() {
           stacked
           compact
           hidden={tab.id !== layout.activeTabId}
-          site={getSiteById(tab.siteId) ?? null}
+          site={getSiteById(tab.siteId, layout.customSites) ?? null}
           sites={enabledSites}
           onSelectSite={noopSelect}
           settingsOpen={settingsOpen}
@@ -223,7 +288,7 @@ export function AiWebPage() {
     return (
       <>
         <WebPane
-          site={getSiteById(layout.panes[0]) ?? null}
+          site={getSiteById(layout.panes[0], layout.customSites) ?? null}
           sites={enabledSites}
           onSelectSite={(siteId) => setPaneSite(0, siteId)}
           // 单栏时这条工具条是唯一一行，设置按钮就落在它身上
@@ -232,7 +297,7 @@ export function AiWebPage() {
         />
         {isSplit && (
           <WebPane
-            site={getSiteById(layout.panes[1]) ?? null}
+            site={getSiteById(layout.panes[1], layout.customSites) ?? null}
             sites={enabledSites}
             onSelectSite={(siteId) => setPaneSite(1, siteId)}
             // 双栏时设置按钮落在最右一栏，位置与右侧设置面板呼应
@@ -255,6 +320,7 @@ export function AiWebPage() {
               tabs={layout.tabs}
               activeTabId={layout.activeTabId}
               sites={enabledSites}
+              customSites={layout.customSites}
               onActivate={activateTab}
               onClose={closeTab}
               onOpen={openTab}
@@ -269,6 +335,8 @@ export function AiWebPage() {
             onModeChange={switchMode}
             onToggleSite={toggleSite}
             onMoveSite={moveSite}
+            onAddSite={addCustomSite}
+            onRemoveSite={removeCustomSite}
             onReset={resetLayout}
             onClose={toggleSettings}
           />

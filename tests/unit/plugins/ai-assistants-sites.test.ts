@@ -1,14 +1,22 @@
 import { describe, it, expect } from 'vitest'
 import {
   AI_WEB_SITES,
+  MAX_CUSTOM_SITES,
+  createCustomSiteId,
+  customSiteColor,
   getSiteById,
   isLayoutMode,
   createTabId,
-  resolveEnabledSites,
+  normalizeCustomSites,
   normalizeLayout,
+  parseCustomSiteUrl,
+  resolveEnabledSites,
+  siteUrlKey,
   hostnameOf,
   WEBVIEW_USER_AGENT,
 } from '../../../../plugins/ai-assistants/src/shared/sites'
+import { activate } from '../../../../plugins/ai-assistants/src/main/index'
+import { createMockContext } from '../../helpers/mock-plugin-context'
 
 describe('ai-assistants / sites 基础', () => {
   it('站点 id 唯一且非空，URL 均为 https', () => {
@@ -132,5 +140,120 @@ describe('ai-assistants / hostnameOf', () => {
   it('空值返回空串', () => {
     expect(hostnameOf('')).toBe('')
     expect(hostnameOf(null)).toBe('')
+  })
+})
+
+describe('ai-assistants / 自定义网页网址', () => {
+  it('缺省协议补 https，并规范化主机名', () => {
+    const result = parseCustomSiteUrl('Example.com/chat?a=1')
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.url).toBe('https://example.com/chat?a=1')
+      expect(result.hostname).toBe('example.com')
+    }
+  })
+
+  it('空值 / 非 https / 非法网址给出对应原因', () => {
+    expect(parseCustomSiteUrl('   ')).toEqual({ ok: false, reason: 'empty' })
+    expect(parseCustomSiteUrl('http://example.com')).toEqual({ ok: false, reason: 'protocol' })
+    expect(parseCustomSiteUrl('https://')).toEqual({ ok: false, reason: 'invalid' })
+  })
+
+  it('siteUrlKey 忽略末尾斜杠与主机名大小写', () => {
+    expect(siteUrlKey('https://Example.com/chat/')).toBe(siteUrlKey('https://example.com/chat'))
+    expect(siteUrlKey('https://example.com/a')).not.toBe(siteUrlKey('https://example.com/b'))
+  })
+})
+
+describe('ai-assistants / normalizeCustomSites', () => {
+  const valid = { id: 'custom-a', name: '示例', url: 'https://example.com/', color: '#123456' }
+
+  it('过滤非 custom- 前缀、重复 id、非法 URL 与重复网址', () => {
+    const out = normalizeCustomSites([
+      valid,
+      { ...valid, id: 'doubao' },
+      { ...valid },
+      { ...valid, id: 'custom-b', url: 'http://example.com/' },
+      { ...valid, id: 'custom-c', url: 'https://example.com' },
+      'junk',
+      null,
+    ])
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ id: 'custom-a', name: '示例', custom: true })
+  })
+
+  it('缺省名称回退域名，非法颜色回退派生色', () => {
+    const [site] = normalizeCustomSites([{ id: 'custom-x', url: 'https://a.example.com/' }])
+    expect(site.name).toBe('a.example.com')
+    expect(site.color).toBe(customSiteColor('a.example.com'))
+  })
+
+  it('数量上限', () => {
+    const many = Array.from({ length: MAX_CUSTOM_SITES + 5 }, (_, i) => ({
+      id: `custom-${i}`,
+      url: `https://site${i}.example.com/`,
+    }))
+    expect(normalizeCustomSites(many)).toHaveLength(MAX_CUSTOM_SITES)
+  })
+
+  it('createCustomSiteId 唯一且带 custom- 前缀', () => {
+    const a = createCustomSiteId()
+    const b = createCustomSiteId()
+    expect(a.startsWith('custom-')).toBe(true)
+    expect(a).not.toBe(b)
+  })
+})
+
+describe('ai-assistants / 自定义网页参与布局', () => {
+  const custom = { id: 'custom-a', name: 'My Chat', url: 'https://chat.example.com/', color: '#123456' }
+
+  it('getSiteById / resolveEnabledSites 认得自定义站点', () => {
+    expect(getSiteById('custom-a', [custom])?.name).toBe('My Chat')
+    expect(resolveEnabledSites(['custom-a', 'bad'], [custom]).map(s => s.id)).toEqual(['custom-a'])
+  })
+
+  it('customSites 脏数据被归一化，pane/tab/enabled 可引用自定义站点', () => {
+    const layout = normalizeLayout({
+      mode: 'tabs',
+      customSites: [custom, { id: 'bad', url: 'https://bad.example.com/' }],
+      panes: ['custom-a', 'doubao'],
+      tabs: [{ id: 't1', siteId: 'custom-a' }],
+      activeTabId: 't1',
+      enabledSites: ['custom-a', 'doubao'],
+    })
+    expect(layout.customSites).toHaveLength(1)
+    expect(layout.panes).toEqual(['custom-a', 'doubao'])
+    expect(layout.tabs).toEqual([{ id: 't1', siteId: 'custom-a' }])
+    expect(layout.enabledSites).toEqual(['custom-a', 'doubao'])
+  })
+
+  it('enabledSites 为空时回退为内置 + 自定义全量站点', () => {
+    const layout = normalizeLayout({ mode: 'single', customSites: [custom] })
+    expect(layout.enabledSites).toContain('custom-a')
+    expect(layout.enabledSites).toHaveLength(AI_WEB_SITES.length + 1)
+  })
+})
+
+describe('ai-assistants / 主进程域名同步', () => {
+  it('激活与保存布局时把自定义网页域名交给宿主', async () => {
+    const { ctx, ipc, webview } = createMockContext('ai-assistants')
+    await activate(ctx)
+
+    const handler = ipc.handlers.get('layout-set')
+    expect(handler).toBeTypeOf('function')
+    await handler?.({
+      mode: 'single',
+      panes: ['custom-a', null],
+      customSites: [
+        { id: 'custom-a', name: 'Chat', url: 'https://chat.example.com/', color: '#123456' },
+        { id: 'custom-b', name: 'Other', url: 'https://other.example.org/path', color: '#654321' },
+        { id: 'custom-c', name: 'Bad', url: 'http://insecure.example.net/', color: '#000000' },
+      ],
+    })
+
+    expect(webview.allowOrigins).toHaveBeenLastCalledWith([
+      'chat.example.com',
+      'other.example.org',
+    ])
   })
 })

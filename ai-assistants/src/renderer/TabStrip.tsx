@@ -12,12 +12,22 @@ export interface TabStripProps {
   activeTabId: string | null
   /** 可新建的站点（设置中启用的站点） */
   sites: AiWebSite[]
+  /** 自定义网页：用于解析标签页标题（标签可能引用已停用的站点） */
+  customSites: AiWebSite[]
   onActivate: (tabId: string) => void
   onClose: (tabId: string) => void
   onOpen: (siteId: string) => void
 }
 
-export function TabStrip({ tabs, activeTabId, sites, onActivate, onClose, onOpen }: TabStripProps) {
+export function TabStrip({
+  tabs,
+  activeTabId,
+  sites,
+  customSites,
+  onActivate,
+  onClose,
+  onOpen,
+}: TabStripProps) {
   const addMenu = {
     items: sites.map((site) => ({
       key: site.id,
@@ -34,7 +44,7 @@ export function TabStrip({ tabs, activeTabId, sites, onActivate, onClose, onOpen
   return (
     <div className="aiweb-tabs">
       {tabs.map((tab) => {
-        const site = getSiteById(tab.siteId)
+        const site = getSiteById(tab.siteId, customSites)
         const active = tab.id === activeTabId
         return (
           <div
@@ -50,7 +60,7 @@ export function TabStrip({ tabs, activeTabId, sites, onActivate, onClose, onOpen
             title={site?.url ?? ''}
           >
             <span className="aiweb-dot" style={{ background: site?.color }} />
-            <span className="aiweb-tab-label">{site?.name ?? tab.siteId}</span>
+            <span className="aiweb-tab-label">{site ? siteName(site) : tab.siteId}</span>
             <button
               type="button"
               className="aiweb-tab-close"
