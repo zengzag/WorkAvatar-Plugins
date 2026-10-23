@@ -1,5 +1,5 @@
 /**
- * 宿主工具目录缓存：把工具英文 id（如 file_write）解析为中文显示名与分组图标，
+ * 宿主工具目录缓存：把工具英文 id（如 file_write）解析为本地化显示名与分组图标，
  * 与宿主普通任务的工具段同源同文案（listBuiltin / getCategories）。
  */
 import { useEffect, useState } from 'react'

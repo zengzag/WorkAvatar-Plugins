@@ -1,5 +1,5 @@
 /**
- * 悬浮字幕窗口，由宿主 subtitle-window.service 迁移而来。
+ * 悬浮字幕窗口（插件自包含）。
  * - 窗口经 ctx.services.windows.create 创建（自动纳入广播目标）
  * - 内容为内联 HTML data URL，渲染端用 window.electronAPI.plugin.onEvent('voice', cb) 订阅
  *   （宿主 preload 的 plugin.onEvent 回调参数为 { event, payload }，HTML 按 event 名分发）

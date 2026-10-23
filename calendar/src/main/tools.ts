@@ -1,5 +1,5 @@
 /**
- * 日历 agent 工具（由宿主 calendar.tool.ts 迁移而来，10 个独立工具）。
+ * 日历 agent 工具（10 个独立工具）。
  * 差异点：
  * - 工具类型改用 PluginToolDefinition（无 source 字段）
  * - employee_id 从 handler 的 context 注入（context.employeeId），不再读 interactionContext

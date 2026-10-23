@@ -1,4 +1,4 @@
-/** 自动化插件渲染端类型定义（与内核 shared/ipc-channels 的 automation 类型一致） */
+/** 自动化插件渲染端类型定义（插件自包含，字段与主进程 automation-service 保持一致） */
 
 export type AutomationTaskStatus = 'idle' | 'running' | 'success' | 'failed'
 export type AutomationRunStatus = 'running' | 'success' | 'failed'

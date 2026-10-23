@@ -1,6 +1,5 @@
 /**
- * calendar 插件渲染端类型定义。
- * 内联自宿主 electron/shared/channels/calendar.ts（插件不能依赖宿主源码路径），
+ * calendar 插件渲染端类型定义（插件自包含，不依赖宿主源码路径）。
  * 仅含纯类型与 UI 专用类型（TodoFilters / NotifyClickPayload / CalendarView）。
  */
 
@@ -281,7 +280,7 @@ export interface NotifyPayload {
   body: string
   clickTarget?: 'event' | 'todo' | 'calendar' | 'ask_user' | 'automation'
   clickId?: string
-  /** 静默：不弹 antd notification，仅写日志 */
+  /** 静默标记：系统通知抑制提示音；IPC 路径原样透传，渲染端不会据此隐藏通知 */
   silent?: boolean
   /** 来源标记 */
   source?: string

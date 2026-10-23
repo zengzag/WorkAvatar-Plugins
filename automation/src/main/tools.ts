@@ -1,5 +1,5 @@
 /**
- * 自动化 agent 工具（由宿主 automation.tool.ts 迁移而来，8 个独立工具）。
+ * 自动化 agent 工具（8 个独立工具）。
  * 差异点：
  * - 工具类型改用 PluginToolDefinition（无 source 字段）
  * - 服务走插件单例 getAutomationService(ctx)

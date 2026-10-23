@@ -1,4 +1,4 @@
-/* notes 插件专属样式（由宿主 src/styles/index.css 迁移而来，插件自包含） */
+/* notes 插件专属样式（插件自包含） */
 
 /* 笔记编辑器：让工具栏、编辑区、分屏预览背景透明，
    继承外层 token.colorBgContainer，与笔记工具栏/侧栏背景一致。

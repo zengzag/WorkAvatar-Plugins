@@ -27,7 +27,7 @@ export function isSensitiveExternalPath(absPath: string): boolean {
   return parts.some((seg) => SENSITIVE_DIR_SEGMENTS.has(seg.toLowerCase()))
 }
 
-// ====== 类型（从宿主 shared/channels/notes 迁入，插件不依赖宿主内部） ======
+// ====== 类型（插件自包含，不依赖宿主内部） ======
 
 export type NoteNodeType = 'folder' | 'file'
 

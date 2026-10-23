@@ -186,7 +186,7 @@ function mapRelationshipType(type: unknown, sourceCard?: unknown, targetCard?: u
 
 const getModelMetaTool: ToolDef = {
   name: 'get_model_meta',
-  description: '获取当前数据模型的轻量元信息概览：表数、关系数、枚举数、索引数，以及表名清单（含字段数）、关系清单、枚举清单。不含字段细节，适合大模型快速了解模型现状，避免直接读取全量数据。',
+  description: '获取当前数据模型的元信息概览：表/关系/枚举/索引数量，以及表名（含字段数）、关系与枚举清单。不含字段定义；需要字段细节时用 get_model_json。',
   parameters: { type: 'object', properties: {} },
   execute: (model) => {
     const data = {
@@ -222,7 +222,7 @@ const getModelMetaTool: ToolDef = {
 
 const getModelJsonTool: ToolDef = {
   name: 'get_model_json',
-  description: '获取当前数据模型的完整结构化 JSON（含表、字段、关系、索引、枚举、布局位置、颜色等全部内容）。includeLayout=false 时省略布局字段（x/y/width/color/expanded）以减小体积；tables 指定表名数组时仅返回这些表的完整定义（按需读取，避免全量）。',
+  description: '获取当前数据模型的完整 JSON（表、字段、关系、索引、枚举、布局）。includeLayout=false 省略布局字段以减小体积；tables 指定表名时仅返回这些表。',
   parameters: {
     type: 'object',
     properties: {
@@ -245,7 +245,7 @@ const getModelJsonTool: ToolDef = {
 
 const setModelJsonTool: ToolDef = {
   name: 'set_model_json',
-  description: '用结构化 JSON 设置当前数据模型，是修改模型的主要方式。mode=replace 用传入的 model 整体替换；mode=merge 按表名去重并入（已存在的表跳过）。AI 编辑 get_model_json 返回的 JSON 后调用本工具写回，即可完成任意增删改。JSON 格式：model.tables 为表数组（每项含 name、fields 字段数组，字段含 name/type/primaryKey/unique/notNull/autoIncrement/defaultValue 等，可省略 id）；model.relationships 为关系数组，每项用 from:{table,field} 与 to:{table,field} 指定源/目标表与字段（也兼容 fromTable/fromField/toTable/toField 或 sourceTableName/sourceFieldName/targetTableName/targetFieldName），type 为 one-to-one/one-to-many/many-to-one/many-to-many；model.indexes 为索引数组（table 表名 + fields 字段名数组）；model.enums 为枚举数组（name + values 字符串数组）。',
+  description: '用结构化 JSON 设置当前数据模型。mode=replace 整体替换；mode=merge 按表名去重并入（已存在的表跳过）。JSON 格式：model.tables 为表数组（每项含 name 与 fields；字段含 name/type/primaryKey/unique/notNull/autoIncrement/defaultValue，id 可省略）；model.relationships 每项用 from:{table,field} 与 to:{table,field} 指定两端，type 为 one-to-one/one-to-many/many-to-one/many-to-many（也兼容 fromTable/fromField/toTable/toField）；model.indexes 为 {table, fields[]}；model.enums 为 {name, values[]}。',
   parameters: {
     type: 'object',
     properties: {
@@ -278,7 +278,7 @@ const setModelJsonTool: ToolDef = {
 
 const patchModelTool: ToolDef = {
   name: 'patch_model',
-  description: '对当前数据模型做增量修改，无需传全量 JSON。operations 为操作数组，每个操作通过表名/字段名/枚举名定位（不区分大小写）。支持操作：addTable/updateTable/removeTable、addField/updateField/removeField、addRelationship/removeRelationship、addEnum/removeEnum、addIndex/removeIndex。一次可包含多个操作，按顺序执行，任一失败则整体回滚。',
+  description: '对当前数据模型做增量修改，无需传全量 JSON。operations 为操作数组，按表名/字段名/枚举名定位（不区分大小写）。支持 addTable/updateTable/removeTable、addField/updateField/removeField、addRelationship/removeRelationship、addEnum/removeEnum、addIndex/removeIndex；多个操作按顺序执行，任一失败则整体回滚。',
   parameters: {
     type: 'object',
     properties: {
@@ -471,7 +471,7 @@ function applyPatchOp(model: DataModel, op: any): PatchResult {
 
 const importDbmlTool: ToolDef = {
   name: 'import_dbml',
-  description: '将一段 DBML 文本解析并导入当前数据模型。mode=replace 整体替换；mode=merge 按表名去重并入。适合用户提供了既有 DBML/SQL DDL 文本时快速导入。',
+  description: '将一段 DBML 文本解析并导入当前数据模型。mode=replace 整体替换；mode=merge 按表名去重并入。用户提供 DBML/SQL DDL 文本时使用。',
   parameters: {
     type: 'object',
     properties: {
@@ -498,7 +498,7 @@ const importDbmlTool: ToolDef = {
 
 const importDbmlFileTool: ToolDef = {
   name: 'import_dbml_file',
-  description: '从指定文件路径读取 DBML 文件并导入当前数据模型。mode=replace 整体替换；mode=merge 按表名去重并入。适合用户提供了 DBML/SQL DDL 文件时快速导入。',
+  description: '从指定文件路径读取 DBML 文件并导入当前数据模型。mode=replace 整体替换；mode=merge 按表名去重并入。',
   parameters: {
     type: 'object',
     properties: {
@@ -532,7 +532,7 @@ const importDbmlFileTool: ToolDef = {
 
 const exportModelFileTool: ToolDef = {
   name: 'export_model_file',
-  description: '将当前数据模型的完整工程内容（含布局、索引、枚举引用等全部信息）导出为 JSON 文件到指定路径。适合超大模型：AI 可先导出文件，再通过文件读取/编辑全量内容，避免在对话中传输过大 JSON。',
+  description: '将当前数据模型的完整工程内容导出为 JSON 文件（含布局、索引、枚举引用）。模型过大时先导出，再用文件工具读取或编辑。',
   parameters: {
     type: 'object',
     properties: {
@@ -556,7 +556,7 @@ const exportModelFileTool: ToolDef = {
 
 const importModelFileTool: ToolDef = {
   name: 'import_model_file',
-  description: '从指定路径读取完整工程文件（.dmv.json，含布局、索引、枚举引用等全部信息）并导入当前数据模型。mode=replace 整体替换；mode=merge 按表名去重并入。适合超大模型经文件导入。',
+  description: '从指定路径读取完整工程文件（.dmv.json）并导入当前数据模型。mode=replace 整体替换；mode=merge 按表名去重并入。',
   parameters: {
     type: 'object',
     properties: {

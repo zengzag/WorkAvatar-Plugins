@@ -1,5 +1,5 @@
 /**
- * 自动化任务调度器（由宿主 automation-scheduler.service.ts 迁移而来）。
+ * 自动化任务调度器（插件自包含）。
  * 差异点：
  * - 不再继承 ScheduledTaskBase，改用 ctx.services.scheduler.every(30s) 定时扫描
  * - 启动时调用 recoverOrphanRuns 清理崩溃残留

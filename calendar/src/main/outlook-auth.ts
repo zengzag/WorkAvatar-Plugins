@@ -1,5 +1,5 @@
 /**
- * Microsoft OAuth2 认证服务（公开客户端 + PKCE，由宿主 outlook-auth.service.ts 迁移而来）。
+ * Microsoft OAuth2 认证服务（公开客户端 + PKCE，插件自包含）。
  * 差异点：
  * - token 加密字符串存插件库 plugin_kv（key='calendar_outlook_token'）
  * - safeStorage 直接取 electron（宿主 getSafeStorage 的延迟加载在主进程场景等价）

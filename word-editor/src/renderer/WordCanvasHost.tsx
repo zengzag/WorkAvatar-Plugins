@@ -250,7 +250,7 @@ export function WordCanvasHost({ initialData, onReady, onRemoteData, onToolbarEx
     }
   }, [ready, locale])
 
-  // 宿主 KeepAlive 用 display:none 隐藏非活动页，而 wordcanvas 的浮动工具条/弹层挂在
+  // 宿主 KeepAlive 用 visibility/content-visibility 隐藏非活动页，而 wordcanvas 的浮动工具条/弹层挂在
   // document.body 上且 position:fixed —— 不处理会残留显示在其他页面上层（如任务页）。
   // 这里用 IntersectionObserver 感知插件页可见性，打 html 类交由 CSS 统一收起/恢复
   // （不触碰上游内联状态，切回页面后上游按原状态继续管理）。

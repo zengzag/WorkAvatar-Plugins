@@ -1,6 +1,6 @@
 /**
  * 模板任务对话展示件：完全对齐普通任务（宿主 workbench）的消息分段设计语言。
- * 复刻 ThinkingSegment / ToolCallSegment / AnswerSegment / PreviewLine 的结构与视觉：
+ * 与宿主 workbench 的消息分段保持同一结构与视觉：
  * 左侧竖线 + 展开箭头 + 分组图标 + 折叠态单行预览 + 等高 pre 输入/输出块。
  */
 import { memo, useLayoutEffect, useMemo, useRef, useState } from 'react'

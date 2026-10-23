@@ -4,7 +4,7 @@ import { RobotOutlined, CloudServerOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 
 /**
- * LLMSelector 插件内复刻版（宿主 src/components/llm/LLMSelector.tsx）。
+ * LLMSelector 插件内独立实现（不复用宿主源码）。
  * 不在插件渲染端 import 宿主源码：类型/工具函数本地内联，
  * provider 列表经宿主运行时全局 window.electronAPI.llm.getProviders() 获取。
  */

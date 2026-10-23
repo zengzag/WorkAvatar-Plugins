@@ -1,5 +1,5 @@
 /**
- * 日历服务（由宿主 electron/main/services/calendar/calendar.service.ts 迁移而来）。
+ * 日历服务（插件自包含）。
  * 差异点：
  * - DB 改为插件分库（ctx.storage.openSqlite('index')），四张表在建库时自建（含 tzid/started_at 列）
  * - settings 读写插件库 plugin_kv 表（key='calendar_settings'），不再读写内核 settings 表

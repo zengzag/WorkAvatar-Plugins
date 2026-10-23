@@ -290,7 +290,7 @@
 
 /* ====== 页面隐藏时收起浮动层 ======
 
-   宿主 KeepAlive 用 display:none 隐藏非活动页，而 wordcanvas 的浮动工具条（选择文本
+   宿主 KeepAlive 用 visibility/content-visibility 隐藏非活动页，而 wordcanvas 的浮动工具条（选择文本
    弹出的 fmtbar/ctxbar）、菜单、对话框等挂在 document.body 上且 position:fixed ——
    切到其他页面（如任务页）后会残留显示在其上层。
    由 WordCanvasHost 按页面可见性开关 <html> 上的 we-page-hidden 类，用 !important

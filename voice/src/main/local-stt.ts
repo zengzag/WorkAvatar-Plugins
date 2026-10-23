@@ -1,5 +1,5 @@
 /**
- * 本地语音识别服务（基于 sherpa-onnx），由宿主 local-stt.service 迁移而来。
+ * 本地语音识别服务（基于 sherpa-onnx，插件自包含）。
  * - 模型固定使用插件自带的内置流式 Zipformer（ctx.paths.resources/streaming-zipformer）
  * - sherpa-onnx-node 优先租借宿主 node_modules（ctx.services.native.borrow），失败回退到原 require 逻辑
  */
@@ -10,7 +10,7 @@ import { app } from 'electron'
 import type { PluginContext, PluginLogger } from '@workavatar/plugin-sdk'
 import { STT_WORKER_SOURCE } from './stt-worker'
 
-// ====== 类型（从宿主 shared/ipc-channels 迁入，插件不依赖宿主内部） ======
+// ====== 类型（插件自包含，不依赖宿主内部） ======
 
 export type VoiceLocalModelType = 'whisper' | 'paraformer' | 'zipformer'
 

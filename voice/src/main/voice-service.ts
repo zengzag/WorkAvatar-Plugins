@@ -1,5 +1,5 @@
 /**
- * 语音识别主服务，由宿主 voice.service.ts 迁移而来。
+ * 语音识别主服务（插件自包含）。
  * - DB 改为插件分库（ctx.storage.openSqlite('index')），建 kms_voice_tasks 表
  * - settings 改为 plugin_kv（key='voice_settings'）
  * - 录音文件目录：ctx.services.host.getDataDir() + '/voice'
@@ -622,40 +622,50 @@ class VoiceService {
 
   /** 自定义纪要提示词：按用户要求生成 */
   private buildCustomMinutesPrompt(customPrompt: string): string {
-    const correctionNote = `重要：以下转录文本由语音识别引擎自动生成，可能存在同音字错误、标点缺失、专有名词识别偏差等问题。请在生成内容时先对转录文本进行理解和纠错，确保输出内容的准确性和可读性。`
+    const correctionNote = `The transcript comes from automatic speech recognition and may contain homophone errors, missing punctuation, or misrecognized proper nouns. Read through and correct these while generating, but never add facts that are not in the transcript.`
 
-    return `你是一位专业的会议纪要助手。请根据以下会议录音转录文本，按照用户要求生成内容。\n\n${correctionNote}\n\n用户要求：${customPrompt}\n\n请使用 Markdown 格式输出。`
-  }
-
-  private buildMinutesPrompt(): string {
-    const correctionNote = `重要：以下转录文本由语音识别引擎自动生成，可能存在同音字错误、标点缺失、专有名词识别偏差等问题。请在生成内容时先对转录文本进行理解和纠错，确保输出内容的准确性和可读性。`
-
-    return `你是一位专业的会议纪要助手。请根据以下会议录音转录文本，生成结构化的会议纪要。
+    return `You are a meeting-minutes generator. Turn the meeting transcript into content that follows the user's requirements.
 
 ${correctionNote}
 
-输出格式（Markdown）：
-## 会议纪要
+User requirements:
+${customPrompt}
 
-### 一、会议概要
-（简要概述会议目的和主要内容，2-3句话）
+Requirements:
+- Output Markdown.
+- Write in the same language as the transcript.
+- Mark unclear information as "(unclear)"; never guess.`
+  }
 
-### 二、讨论要点
-（列出主要讨论话题及关键观点，使用要点列表）
+  private buildMinutesPrompt(): string {
+    const correctionNote = `The transcript comes from automatic speech recognition and may contain homophone errors, missing punctuation, or misrecognized proper nouns. Read through and correct these while generating, but never add facts that are not in the transcript.`
 
-### 三、决议事项
-（列出会议达成的决定和共识）
+    return `You are a meeting-minutes generator. Turn the meeting transcript into structured minutes.
 
-### 四、待办事项
-（列出需要跟进的任务，标注负责人如转录文本中提及）
+${correctionNote}
 
-### 五、其他备注
-（如有补充信息）
+Use these sections in this order, translating the headings into the output language:
+## Meeting Minutes
 
-注意：
-- 如果转录文本中信息不明确，用"（未明确）"标注
-- 保持客观，不要添加转录文本中未提及的内容
-- 使用中文输出`
+### 1. Overview
+Two or three sentences on the meeting's purpose and main content.
+
+### 2. Discussion Points
+List the key points by topic, using bullet lists.
+
+### 3. Decisions
+List the decisions and agreements reached.
+
+### 4. Action Items
+List the tasks that need follow-up; name the owner when the transcript mentions one.
+
+### 5. Other Notes
+Include only when there is additional information.
+
+Requirements:
+- Mark unclear information as "(unclear)"; never guess.
+- Stay objective and add nothing that is not in the transcript.
+- Write in the same language as the transcript.`
   }
 
   private formatTranscriptForLLM(task: VoiceTask): string {

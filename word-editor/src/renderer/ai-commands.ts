@@ -1,6 +1,6 @@
-// AI 助手指令定义（对标 WPS/飞书：文档级场景指令 + 选区级改写指令）
+// AI 助手指令定义（文档级场景指令 + 选区级改写指令）
 //
-// prompt 面向 LLM，沿用中文不本地化；UI 文案用 key 拼 i18n 前缀：
+// prompt 面向 LLM，固定英文；输出语言由系统提示词约束，跟随用户与文档语言
 // 文档指令 ai.cmd.<key>、选区指令 ai.sel.<key>、分组 ai.group.<key>、示例 ai.example.<key>
 // （i18n 死 key 扫描按 hostT 模板前缀收集，见 word-editor-i18n.test.ts）。
 
@@ -28,17 +28,17 @@ export const AI_COMMAND_GROUPS: AiCommandGroup[] = [
       {
         key: 'outline',
         scope: 'doc',
-        prompt: '请梳理并整理这篇文档的大纲结构：通读全文后用 Heading 1 / Heading 2 命名样式明确章节层级，必要时调整段落顺序，使整体结构更清晰。',
+        prompt: 'Organize this document\'s outline: read it through, use Heading 1 / Heading 2 named styles to make the chapter hierarchy clear, and reorder paragraphs where needed.',
       },
       {
         key: 'draft',
         scope: 'doc',
-        prompt: '请根据文档现有的标题和大纲补全各章节正文，内容紧扣主题、论述完整，风格与已有内容保持一致。',
+        prompt: 'Complete the body of each section from the existing headings and outline. Stay on topic, argue fully, and match the existing style.',
       },
       {
         key: 'continue',
         scope: 'caret',
-        prompt: '请从我的光标位置开始，顺着上文思路继续写作，保持原文的风格、人称和语气一致。',
+        prompt: 'Continue writing from my caret position, following the preceding idea and matching the existing style, person, and tone.',
       },
     ],
   },
@@ -48,17 +48,17 @@ export const AI_COMMAND_GROUPS: AiCommandGroup[] = [
       {
         key: 'polish',
         scope: 'doc',
-        prompt: '请通读全文，把语言表达不够流畅的地方润色一遍，保持结构不变。',
+        prompt: 'Read the whole document and polish any awkward wording without changing its structure.',
       },
       {
         key: 'formal',
         scope: 'doc',
-        prompt: '把全文调整为正式书面语气，保持内容不变。',
+        prompt: 'Rewrite the whole document in a formal written tone without changing its content.',
       },
       {
         key: 'format',
         scope: 'doc',
-        prompt: '优化文档排版：修正标题层级、对齐和列表，使结构更清晰。',
+        prompt: 'Improve the document\'s layout: fix heading levels, alignment, and lists so the structure is clear.',
       },
     ],
   },
@@ -68,7 +68,7 @@ export const AI_COMMAND_GROUPS: AiCommandGroup[] = [
       {
         key: 'proofread',
         scope: 'doc',
-        prompt: '检查全文错别字、语病和标点符号，直接修正。',
+        prompt: 'Check the whole document for typos, grammar errors, and punctuation, and fix them directly.',
       },
     ],
   },
@@ -78,12 +78,12 @@ export const AI_COMMAND_GROUPS: AiCommandGroup[] = [
       {
         key: 'summary',
         scope: 'doc',
-        prompt: '为这篇文档生成一段摘要，加到文档开头。',
+        prompt: 'Write a summary of this document and add it at the beginning.',
       },
       {
         key: 'todos',
         scope: 'doc',
-        prompt: '请通读全文，把其中的待办事项和行动项整理成一份清单，插入到文档末尾，清单前用 Heading 1 样式加标题「待办事项」。',
+        prompt: 'Read the document and collect its to-dos and action items into a checklist at the end, under a Heading 1 heading meaning "To-dos" in the document\'s language.',
       },
     ],
   },
@@ -99,32 +99,32 @@ export const AI_SELECTION_COMMANDS: AiCommand[] = [
   {
     key: 'polish',
     scope: 'selection',
-    prompt: '请润色我选中的这段文字：优化表达、让语句更通顺，保持原意和风格不变。',
+    prompt: 'Polish the text I selected: improve the expression and fluency while preserving the meaning and style.',
   },
   {
     key: 'shorten',
     scope: 'selection',
-    prompt: '请把我选中的文字精简缩写，保留核心信息，去掉冗余表述。',
+    prompt: 'Shorten the text I selected, keeping the core information and removing redundancy.',
   },
   {
     key: 'expand',
     scope: 'selection',
-    prompt: '请扩写我选中的这段内容，补充必要的细节和论述，与上下文风格保持一致。',
+    prompt: 'Expand the text I selected with the necessary detail and argument, matching the surrounding style.',
   },
   {
     key: 'formal',
     scope: 'selection',
-    prompt: '请把我选中的文字调整为正式书面语气，保持原意不变。',
+    prompt: 'Rewrite the selected text in a formal written tone without changing the meaning.',
   },
   {
     key: 'translate',
     scope: 'selection',
-    prompt: '请把我选中的文字翻译成英文或中文（按原文语言自动判断），只输出译文，不要解释。',
+    prompt: 'Translate the selected text into English or Chinese (detect the source language), and output only the translation without explanation.',
   },
   {
     key: 'explain',
     scope: 'selection',
-    prompt: '请解释我选中的这段内容是什么意思，用通俗易懂的话说明即可，不要修改文档。',
+    prompt: 'Explain what the selected text means in plain language; do not modify the document.',
   },
 ]
 

@@ -1,6 +1,5 @@
 /**
  * notes 插件 useNotes hook：封装 store 状态与数据操作（经插件桥 IPC）。
- * 由宿主 hook（src/hooks/useNotes.ts）迁移而来，仅替换数据访问层。
  */
 import { useCallback, useEffect, useRef } from 'react'
 import { App } from 'antd'

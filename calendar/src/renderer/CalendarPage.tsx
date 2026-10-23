@@ -44,7 +44,7 @@ const CalendarPage: React.FC = () => {
   const calendarWrapRef = useRef<HTMLDivElement | null>(null)
   const pageRef = useRef<HTMLDivElement | null>(null)
 
-  // 页面被 KeepAlive 缓存（display:none 隐藏）后重新可见时，立即刷新数据，避免进入时数据陈旧
+  // KeepAlive 以 visibility/content-visibility 隐藏页面；监听父级 style 变化后刷新数据（当前按 display 判断可见性）
   useEffect(() => {
     const el = pageRef.current
     if (!el) return

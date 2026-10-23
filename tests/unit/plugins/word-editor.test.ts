@@ -475,10 +475,10 @@ describe('AI 文档工具', () => {
       },
     })
     const req = executeMock(mock).mock.calls[0][0] as { system: string }
-    expect(req.system).toContain('用户选中的文字')
+    expect(req.system).toContain('user-selected text')
     expect(req.system).toContain('p1')
     expect(req.system).toContain('这是一段被选中的话')
-    expect(req.system).toContain('只改动选中范围')
+    expect(req.system).toContain('change only the selection')
   })
 
   it('chat-send 透传光标作用域到系统提示词（续写落点）', async () => {
@@ -490,9 +490,9 @@ describe('AI 文档工具', () => {
       scopeHint: { kind: 'caret', anchor: { blockId: 'p1', offset: 4 } },
     })
     const req = executeMock(mock).mock.calls[0][0] as { system: string }
-    expect(req.system).toContain('光标位置')
+    expect(req.system).toContain('caret position')
     expect(req.system).toContain('p1')
-    expect(req.system).not.toContain('用户选中的文字')
+    expect(req.system).not.toContain('user-selected text')
   })
 
   it('chat-send 忽略结构不合法的 scopeHint', async () => {

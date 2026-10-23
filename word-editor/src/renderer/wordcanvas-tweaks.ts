@@ -117,7 +117,8 @@ export function clampFloatingLayers(root: ParentNode = document, margin = 6): nu
 
 /**
  * 安装弹层视口钳制：观察 `document.body` 上新增的弹层（上游把弹层挂在 body 上），
- * 插入后立刻校正一次位置。@returns 卸载函数
+ * 插入后立刻校正一次位置。
+ * @returns 卸载函数
  */
 export function installFloatingLayerClamp(margin = 6): () => void {
   const observer = new MutationObserver((records) => {

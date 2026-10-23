@@ -1,6 +1,5 @@
 /**
- * Outlook 单向同步引擎：本地 SQLite → Outlook（Graph API）。
- * 由宿主 outlook-sync.service.ts 迁移而来。差异点：
+ * Outlook 单向同步引擎：本地 SQLite → Outlook（Graph API）。差异点：
  * - 不再继承 ScheduledTaskBase：start() 立即跑一次 runCheck + every(60s)，stop() 取消
  * - 配置/状态/映射归属账号存插件库 plugin_kv（calendar_outlook_sync_config / calendar_outlook_sync_state / calendar_outlook_sync_account），映射表 calendar_sync_map
  * - broadcast() 改走 ctx.ipc.broadcast('outlook-sync-changed', status)

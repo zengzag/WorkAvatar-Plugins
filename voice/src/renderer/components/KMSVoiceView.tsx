@@ -1047,14 +1047,14 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
         }
       }
 
-      // System audio via getDisplayMedia (modern Electron approach)
+      // 系统音频：经 getDisplayMedia 获取
       if (recordSource === 'system' || recordSource === 'both') {
         try {
           const displayStream = await navigator.mediaDevices.getDisplayMedia({
-            video: true,   // Required by spec, stopped immediately after
-            audio: true,   // Request system audio (loopback)
+            video: true,   // 规范要求同时请求视频轨，取得后立即停止
+            audio: true,   // 请求系统音频（环回）
           })
-          // Stop video tracks immediately - we only want audio
+          // 立即停止视频轨，只保留音频
           displayStream.getVideoTracks().forEach(t => t.stop())
           const audioTracks = displayStream.getAudioTracks()
           if (audioTracks.length === 0) {
@@ -1079,7 +1079,7 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
             message.error(t('voice.systemAudioFailed'))
             return
           }
-          // For 'both', continue with mic only
+          // 'both' 模式：继续仅用麦克风录音
           message.warning(t('voice.systemAudioFallback'))
         }
       }

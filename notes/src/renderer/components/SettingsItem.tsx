@@ -12,7 +12,7 @@ export interface SettingsItemProps {
   style?: React.CSSProperties
 }
 
-/** 设置项（由宿主 src/components/common/SettingsItem 迁入） */
+/** 设置项（插件内独立实现） */
 const SettingsItem: React.FC<SettingsItemProps> = ({
   title,
   description,

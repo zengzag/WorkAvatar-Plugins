@@ -1,10 +1,10 @@
 /**
- * 自动化服务（由宿主 electron/main/services/automation/automation.service.ts 迁移而来）。
+ * 自动化服务（插件自包含）。
  * 差异点：
  * - DB 改为插件分库（ctx.storage.openSqlite('index')），automation_tasks / automation_runs 表在建库时自建
  * - 任务执行改用 ctx.services.execute.execute({ kind: 'agent-chat', ... })（底层 EmployeeAgentService.chatStream，精细控制 provider/model/high_permission 等）
  * - 通知改用 ctx.services.notification
- * - conversation 删除双向同步：订阅 ctx.services.events 的 conversation:deleted 清理关联 run 记录
+ * - conversation 删除双向同步：index.ts 订阅 ctx.services.events 的 conversation:deleted 并调用 deleteRunByConversation 清理关联 run
  * - logger 用 ctx.services.logger，id 用本地 generateId()
  */
 import * as crypto from 'crypto'
@@ -458,7 +458,7 @@ class AutomationService {
     return result.changes
   }
 
-  /** 模型重命名同步：更新任务与执行历史中的 model_id（内核 model-renamed 事件触发） */
+  /** 模型重命名同步：更新任务与执行历史中的 model_id（内核 model:renamed 事件触发） */
   syncModelRenames(providerId: string, renames: Record<string, string>): void {
     for (const [oldModel, newModel] of Object.entries(renames)) {
       this.db.prepare('UPDATE automation_tasks SET model_id = ?, updated_at = unixepoch() WHERE provider_id = ? AND model_id = ?')
@@ -936,7 +936,7 @@ class AutomationService {
 
   // ====== 内核 conversation 操作（经 ctx.services.data 桥接） ======
 
-  /** 创建 conversation（复用内核 WorkspaceManagerService.createConversation） */
+  /** 创建 conversation（经 ctx.services.data.mutate('conversations','create')） */
   private async createConversation(employeeId: string, title?: string): Promise<{ id: string }> {
     const conv = await this.ctx.services.data!.mutate<{ id: string }>('conversations', 'create', {
       employeeId,

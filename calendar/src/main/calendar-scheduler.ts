@@ -1,5 +1,5 @@
 /**
- * 日历提醒调度器（由宿主 calendar-scheduler.service.ts 迁移而来）。
+ * 日历提醒调度器（插件自包含）。
  * 差异点：
  * - 不再继承 ScheduledTaskBase，改用 ctx.services.scheduler.every(30s) 定时扫描
  * - 提醒推送：settings.enable_system_notification=false 走 ctx.ipc.broadcast('notify')，否则 ctx.services.notification.notify

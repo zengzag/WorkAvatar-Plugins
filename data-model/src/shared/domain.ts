@@ -1,4 +1,4 @@
-// 数据模型领域类型与工厂函数（移植自 DataModelViewer）
+// 数据模型领域类型与工厂函数
 
 export const DatabaseTypes = [
   'generic', 'postgresql', 'mysql', 'mariadb', 'sqlite', 'sqlserver', 'oracle', 'clickhouse'

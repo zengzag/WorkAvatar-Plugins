@@ -1,4 +1,4 @@
-// 画布自动布局（力导向，均匀铺开避免堆叠成一列）
+// 画布自动布局（力导向，均匀铺开避免堆叠成一列；文件名沿用历史命名，已不使用 dagre）
 
 import type { DataModel, Table, Relationship } from '../../shared/domain'
 
@@ -58,8 +58,7 @@ export interface LayoutResult {
 
 /**
  * 力导向自动布局（Fruchterman-Reingold 变体）。
- * 相比 dagre 的 LR 分层，力导向会在二维平面均匀铺开节点，
- * 避免表多时堆叠成长长的一列，整体更紧凑、更均衡。
+ * 在二维平面均匀铺开节点，避免表多时堆叠成长长的一列，整体更紧凑、更均衡。
  */
 export function layoutTables(model: DataModel, width: number): LayoutResult {
   const tables = model.tables

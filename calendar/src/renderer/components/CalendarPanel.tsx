@@ -724,7 +724,7 @@ const CalendarPanel: React.FC<CalendarPanelProps> = ({
                     )
                   })}
 
-                  {/* TODO 到期长条（与事件统一做列分配，避免重叠覆盖） */}
+                  {/* 待办到期长条（与事件统一做列分配，避免重叠覆盖） */}
                   {todoGroups.map((group) => {
                     return group.todos.map((td) => {
                       const key = `td-${td.id}-${td.instance_due_at}`
