@@ -1,0 +1,29 @@
+{
+  "id": "image-studio",
+  "name": "Image Studio",
+  "version": "1.3.0",
+  "engine": ">=0.2.0",
+  "description": "PPT 配图、科研配图与架构/流程图工作台：接入火山 Seedream、千问 Image 与 OpenAI GPT Image，支持场景预设、提示词 AI 优化、版面留白、透明背景、标题排版与本地作品库",
+  "author": "WorkAvatar",
+  "main": "dist/main/index.cjs",
+  "renderer": "dist/renderer/index.js",
+  "locale": "locale",
+  "ipc": [
+    "settings-get", "settings-save", "settings-test",
+    "llm-models", "optimize-prompt",
+    "list-images", "generate", "cancel",
+    "toggle-favorite", "delete-image", "save-image-as", "download-image",
+    "copy-image", "show-in-folder", "read-image-data", "import-image",
+    "pick-download-dir", "open-download-dir", "open-data-dir"
+  ],
+  "capabilities": [
+    { "domain": "data", "entities": ["llmProviders"], "access": "read" },
+    { "domain": "execute", "kinds": ["llm-chat"] }
+  ],
+  "nav": {
+    "label": "navLabel",
+    "icon": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 16 16\" width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"1.8\" y=\"3.2\" width=\"12.4\" height=\"9.6\" rx=\"1.4\"/><path d=\"M4.6 10.4l2.2-2.6 1.7 1.9 1.2-1.2 1.7 1.9\"/><circle cx=\"10.9\" cy=\"6.3\" r=\"1\"/></svg>",
+    "order": 25,
+    "detachable": true
+  }
+}
