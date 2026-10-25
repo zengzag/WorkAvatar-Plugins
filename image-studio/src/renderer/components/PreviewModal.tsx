@@ -1,9 +1,8 @@
 /**
- * 作品大图预览：左右切换、参数详情、快捷操作，以及「标题排版」——
- * 用 Canvas 把清晰文字叠加到图上另存为新作品，避免 AI 生成文字错字。
+ * 作品大图预览：左右切换、参数详情与快捷操作。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { App, Button, Input, Modal, Segmented, Select, Tooltip, theme } from 'antd'
+import { App, Button, Modal, Tooltip, theme } from 'antd'
 import {
   CloudDownloadOutlined,
   CopyOutlined,
@@ -24,8 +23,6 @@ import {
   copyText,
   deleteImage,
   downloadImage,
-  importDerivedImage,
-  readImageData,
   regenerateFrom,
   saveImageAs,
   setPreview,
@@ -37,53 +34,11 @@ import {
   useStudio,
 } from '../store'
 
-type OverlayPosition = 'topLeft' | 'bottomLeft' | 'bottomRight' | 'center'
-type OverlayColor = 'light' | 'dark'
-type OverlaySize = 'small' | 'medium' | 'large'
-
-const POSITIONS: OverlayPosition[] = ['topLeft', 'bottomLeft', 'bottomRight', 'center']
-const COLORS: OverlayColor[] = ['light', 'dark']
-const SIZES: OverlaySize[] = ['small', 'medium', 'large']
-
-const FONT_STACK = '"PingFang SC", "Microsoft YaHei", "Segoe UI", "Helvetica Neue", Arial, sans-serif'
-const SIZE_RATIO: Record<OverlaySize, number> = { small: 0.034, medium: 0.048, large: 0.066 }
-
-function wrapText(
-  ctx: CanvasRenderingContext2D,
-  text: string,
-  fontSize: number,
-  weight: number,
-  maxWidth: number,
-  maxLines: number
-): string[] {
-  ctx.font = `${weight} ${fontSize}px ${FONT_STACK}`
-  const lines: string[] = []
-  let line = ''
-  for (const char of Array.from(text)) {
-    const next = line + char
-    if (ctx.measureText(next).width > maxWidth && line) {
-      lines.push(line)
-      line = char
-      if (lines.length >= maxLines) break
-    } else {
-      line = next
-    }
-  }
-  if (lines.length < maxLines && line) lines.push(line)
-  return lines
-}
-
 export function PreviewModal() {
   const { token } = theme.useToken()
   const { message, modal } = App.useApp()
   const state = useStudio()
   const [zoom, setZoom] = useState(false)
-  const [overlayTitle, setOverlayTitle] = useState('')
-  const [overlaySubtitle, setOverlaySubtitle] = useState('')
-  const [overlayPosition, setOverlayPosition] = useState<OverlayPosition>('bottomLeft')
-  const [overlayColor, setOverlayColor] = useState<OverlayColor>('light')
-  const [overlaySize, setOverlaySize] = useState<OverlaySize>('medium')
-  const [applying, setApplying] = useState(false)
 
   const ordered = useMemo(() => [...state.images].sort((a, b) => b.createdAt - a.createdAt), [state.images])
   const index = state.previewId ? ordered.findIndex((item) => item.id === state.previewId) : -1
@@ -132,118 +87,6 @@ export function PreviewModal() {
     const ok = await copyText(image.prompt)
     if (ok) message.success(t('copyPromptSuccess'))
     else message.error(t('errors.copyFailed'))
-  }
-
-  const applyOverlay = async () => {
-    if (!overlayTitle.trim()) {
-      message.warning(t('overlayEmpty'))
-      return
-    }
-    setApplying(true)
-    try {
-      const dataUrl = await readImageData(image.id, true)
-      if (!dataUrl) throw new Error('no image data')
-      const img = new Image()
-      img.src = dataUrl
-      await img.decode()
-      const width = img.naturalWidth
-      const height = img.naturalHeight
-      const canvas = document.createElement('canvas')
-      canvas.width = width
-      canvas.height = height
-      const ctx = canvas.getContext('2d')
-      if (!ctx) throw new Error('canvas unavailable')
-      ctx.drawImage(img, 0, 0, width, height)
-
-      const titleSize = Math.round(width * SIZE_RATIO[overlaySize])
-      const subtitleSize = Math.round(titleSize * 0.52)
-      const pad = Math.round(width * 0.065)
-      const maxWidth = width - pad * 2
-      const titleLines = wrapText(ctx, overlayTitle.trim(), titleSize, 700, maxWidth, 3)
-      const subtitleLines = overlaySubtitle.trim()
-        ? wrapText(ctx, overlaySubtitle.trim(), subtitleSize, 500, maxWidth, 2)
-        : []
-      const lineGap = Math.round(titleSize * 0.24)
-      const titleHeight = titleLines.length * (titleSize + lineGap)
-      const subtitleHeight = subtitleLines.length * (subtitleSize + lineGap * 0.7)
-      const totalHeight = titleHeight + (subtitleLines.length ? subtitleHeight + lineGap * 0.4 : 0)
-
-      // 文字底层柔和压暗/提亮，保证任意画面上的可读性
-      const scrim = overlayColor === 'light' ? '0, 0, 0' : '255, 255, 255'
-      ctx.save()
-      if (overlayPosition === 'center') {
-        const radius = Math.max(width, height) * 0.62
-        const gradient = ctx.createRadialGradient(width / 2, height / 2, 0, width / 2, height / 2, radius)
-        gradient.addColorStop(0, `rgba(${scrim}, 0.56)`)
-        gradient.addColorStop(1, `rgba(${scrim}, 0)`)
-        ctx.fillStyle = gradient
-        ctx.fillRect(0, 0, width, height)
-      } else {
-        const fromTop = overlayPosition === 'topLeft'
-        const gradient = ctx.createLinearGradient(0, fromTop ? 0 : height, 0, fromTop ? height * 0.52 : height * 0.48)
-        gradient.addColorStop(0, `rgba(${scrim}, 0.6)`)
-        gradient.addColorStop(1, `rgba(${scrim}, 0)`)
-        ctx.fillStyle = gradient
-        ctx.fillRect(0, 0, width, height)
-      }
-      ctx.restore()
-
-      const textColor = overlayColor === 'light' ? '#ffffff' : '#111827'
-      const startY =
-        overlayPosition === 'center'
-          ? (height - totalHeight) / 2
-          : overlayPosition === 'topLeft'
-            ? pad * 1.15
-            : height - pad - totalHeight
-      const align: CanvasTextAlign =
-        overlayPosition === 'center' ? 'center' : overlayPosition === 'bottomRight' ? 'right' : 'left'
-      const x = align === 'center' ? width / 2 : align === 'right' ? width - pad : pad
-
-      ctx.textAlign = align
-      ctx.textBaseline = 'top'
-      ctx.fillStyle = textColor
-      ctx.shadowColor = overlayColor === 'light' ? 'rgba(0, 0, 0, 0.45)' : 'rgba(255, 255, 255, 0.55)'
-      ctx.shadowBlur = Math.round(titleSize * 0.22)
-      ctx.shadowOffsetY = Math.round(titleSize * 0.05)
-
-      let cursorY = startY
-      ctx.font = `700 ${titleSize}px ${FONT_STACK}`
-      for (const line of titleLines) {
-        ctx.fillText(line, x, cursorY)
-        cursorY += titleSize + lineGap
-      }
-      if (subtitleLines.length) {
-        cursorY += lineGap * 0.4
-        ctx.globalAlpha = 0.92
-        ctx.font = `500 ${subtitleSize}px ${FONT_STACK}`
-        for (const line of subtitleLines) {
-          ctx.fillText(line, x, cursorY)
-          cursorY += subtitleSize + lineGap * 0.7
-        }
-        ctx.globalAlpha = 1
-      }
-
-      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
-      if (!blob) throw new Error('export failed')
-      const buffer = await blob.arrayBuffer()
-      const created = await importDerivedImage({
-        buffer,
-        sourceId: image.id,
-        label: t('overlayLabel'),
-        title: overlayTitle.trim(),
-        subtitle: overlaySubtitle.trim(),
-        position: overlayPosition,
-        color: overlayColor,
-        size: overlaySize,
-      })
-      if (!created) throw new Error('save failed')
-      message.success(t('overlayApplied'))
-      setPreview(created.id)
-    } catch (err: any) {
-      message.error(err?.message || t('overlayFailed'))
-    } finally {
-      setApplying(false)
-    }
   }
 
   return (
@@ -314,52 +157,6 @@ export function PreviewModal() {
             <Button size="small" type="text" icon={<CopyOutlined />} onClick={() => void copyPrompt()}>
               {t('copyPrompt')}
             </Button>
-          </div>
-
-          <div className="is-preview-section is-overlay">
-            <div className="is-preview-label">{t('overlayTitle')}</div>
-            <Input
-              size="small"
-              value={overlayTitle}
-              onChange={(event) => setOverlayTitle(event.target.value)}
-              placeholder={t('titlePlaceholder')}
-              maxLength={60}
-            />
-            <Input
-              size="small"
-              value={overlaySubtitle}
-              onChange={(event) => setOverlaySubtitle(event.target.value)}
-              placeholder={t('subtitlePlaceholder')}
-              maxLength={80}
-            />
-            <div className="is-overlay-controls">
-              <Select
-                size="small"
-                value={overlayPosition}
-                onChange={(value) => setOverlayPosition(value as OverlayPosition)}
-                style={{ width: 104 }}
-                options={POSITIONS.map((position) => ({
-                  value: position,
-                  label: t(`overlayPos.${position}`),
-                }))}
-              />
-              <Segmented
-                size="small"
-                value={overlayColor}
-                onChange={(value) => setOverlayColor(value as OverlayColor)}
-                options={COLORS.map((color) => ({ value: color, label: t(`overlayColor.${color}`) }))}
-              />
-              <Segmented
-                size="small"
-                value={overlaySize}
-                onChange={(value) => setOverlaySize(value as OverlaySize)}
-                options={SIZES.map((size) => ({ value: size, label: t(`overlaySize.${size}`) }))}
-              />
-            </div>
-            <Button size="small" block loading={applying} onClick={() => void applyOverlay()}>
-              {t('overlayApply')}
-            </Button>
-            <div className="is-field-hint">{t('overlayHint')}</div>
           </div>
 
           {image.negativePrompt && (

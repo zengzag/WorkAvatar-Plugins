@@ -36,11 +36,9 @@ export function ImageStudioPage() {
             </svg>
           </div>
           <div className="is-brand-copy">
-            <div className="is-brand-title">
-              {t('title')}
-              <span className="is-brand-version">v{PLUGIN_VERSION}</span>
-            </div>
-            <div className="is-brand-sub">{t('subtitle')}</div>
+            <span className="is-brand-title">{t('title')}</span>
+            <span className="is-brand-version">v{PLUGIN_VERSION}</span>
+            <span className="is-brand-sub">{t('subtitle')}</span>
           </div>
         </div>
         <div className="is-header-actions">

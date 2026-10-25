@@ -246,44 +246,6 @@ export function readImageData(id: string, options?: { full?: boolean }): string 
   return `data:${mimeFromExt(image.filePath)};base64,${buffer.toString('base64')}`
 }
 
-/** 标题排版等衍生图：保存为独立作品，沿用原图的服务商/参数元信息 */
-export function importDerivedImage(
-  buffer: Buffer,
-  sourceId: string,
-  promptSuffix: string,
-  paramsPatch: Record<string, unknown>
-): GeneratedImage | null {
-  const source = getImage(sourceId)
-  if (!source) return null
-  const saved = saveImageBuffer(buffer, 'image/png', 'png')
-  let sourceParams: Record<string, unknown> = {}
-  try {
-    sourceParams = JSON.parse(source.paramsJson || '{}')
-  } catch {
-    sourceParams = {}
-  }
-  const record: GeneratedImage = {
-    id: newImageId(),
-    jobId: `overlay_${Date.now()}`,
-    provider: source.provider,
-    model: source.model,
-    prompt: promptSuffix ? `${source.prompt}（${promptSuffix}）` : source.prompt,
-    negativePrompt: source.negativePrompt,
-    width: saved.width,
-    height: saved.height,
-    filePath: saved.filePath,
-    thumbPath: saved.thumbPath,
-    favorite: false,
-    seed: null,
-    durationMs: 0,
-    createdAt: Date.now(),
-    purpose: source.purpose,
-    paramsJson: JSON.stringify({ ...sourceParams, ...paramsPatch, derivedFrom: source.id }),
-  }
-  insertImage(record)
-  return record
-}
-
 export async function copyImageToClipboard(id: string): Promise<boolean> {
   const image = getImage(id)
   if (!image || !fs.existsSync(image.filePath)) return false

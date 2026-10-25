@@ -14,7 +14,6 @@ import {
   Select,
   Switch,
   Tooltip,
-  theme,
 } from 'antd'
 import {
   ApartmentOutlined,
@@ -25,7 +24,6 @@ import {
   ClearOutlined,
   CloseOutlined,
   CopyOutlined,
-  DownOutlined,
   EditOutlined,
   ExperimentOutlined,
   FileTextOutlined,
@@ -117,7 +115,6 @@ const PURPOSE_ICONS: Record<PurposeId, React.ReactNode> = {
 }
 
 export function ComposerPanel() {
-  const { token } = theme.useToken()
   const { message } = App.useApp()
   const state = useStudio()
   const composer = state.composer
@@ -327,7 +324,8 @@ export function ComposerPanel() {
         </div>
       )}
 
-      <div className="is-tier-row">
+      <div className="is-field-row is-param-row">
+        <span className="is-field-label">{t('resolutionLabel')}</span>
         <Segmented
           size="small"
           value={composer.customSizeEnabled ? 'custom' : composer.tier}
@@ -354,25 +352,26 @@ export function ComposerPanel() {
         />
       )}
 
-      <div className="is-param-pair">
-        <div className="is-param-field">
-          <span className="is-field-label">{t('textSpaceLabel')}</span>
-          <Select
-            size="small"
-            value={composer.textSpace}
-            onChange={(value) => setComposer({ textSpace: value as TextSpace })}
-            options={TEXT_SPACES.map((space) => ({ value: space, label: t(`textSpace.${space}`) }))}
-          />
-        </div>
-        <div className="is-param-field">
-          <span className="is-field-label">{t('paletteLabel')}</span>
-          <Select
-            size="small"
-            value={composer.palette}
-            onChange={(value) => setComposer({ palette: value as PaletteId })}
-            options={PALETTE_IDS.map((palette) => ({ value: palette, label: t(`palette.${palette}`) }))}
-          />
-        </div>
+      <div className="is-field-row is-param-row">
+        <span className="is-field-label">{t('textSpaceLabel')}</span>
+        <Select
+          size="small"
+          value={composer.textSpace}
+          onChange={(value) => setComposer({ textSpace: value as TextSpace })}
+          options={TEXT_SPACES.map((space) => ({ value: space, label: t(`textSpace.${space}`) }))}
+          style={{ width: 120 }}
+        />
+      </div>
+
+      <div className="is-field-row is-param-row">
+        <span className="is-field-label">{t('paletteLabel')}</span>
+        <Select
+          size="small"
+          value={composer.palette}
+          onChange={(value) => setComposer({ palette: value as PaletteId })}
+          options={PALETTE_IDS.map((palette) => ({ value: palette, label: t(`palette.${palette}`) }))}
+          style={{ width: 120 }}
+        />
       </div>
 
       <div className="is-field-row is-param-row">
@@ -443,38 +442,42 @@ export function ComposerPanel() {
   const advancedGroup = (
     <div className="is-param-group">
       <div className="is-param-group-title">{t('paramGroupAdvanced')}</div>
-      <div className="is-param-pair">
-        <div className="is-param-field">
-          <span className="is-field-label">{t('count')}</span>
-          <InputNumber
+      <div className="is-field-row is-param-row">
+        <span className="is-field-label">{t('count')}</span>
+        <InputNumber
+          size="small"
+          min={1}
+          max={spec.maxOutputs}
+          value={composer.count}
+          onChange={(value) => setComposer({ count: Number(value) || 1 })}
+          style={{ width: 96 }}
+        />
+      </div>
+
+      {spec.supportsQuality && (
+        <div className="is-field-row is-param-row">
+          <span className="is-field-label">{t('qualityLabel')}</span>
+          <Select
             size="small"
-            min={1}
-            max={spec.maxOutputs}
-            value={composer.count}
-            onChange={(value) => setComposer({ count: Number(value) || 1 })}
+            value={composer.quality}
+            onChange={(value) => setComposer({ quality: value as QualityTier })}
+            options={QUALITY_IDS.map((quality) => ({ value: quality, label: t(`quality.${quality}`) }))}
+            style={{ width: 120 }}
           />
         </div>
-        {spec.supportsQuality && (
-          <div className="is-param-field">
-            <span className="is-field-label">{t('qualityLabel')}</span>
-            <Select
+      )}
+
+      {spec.supportsSequential && (
+        <div className="is-field-row is-param-row">
+          <span className="is-field-label">{t('groupGeneration')}</span>
+          <div className="is-inline">
+            <Switch
               size="small"
-              value={composer.quality}
-              onChange={(value) => setComposer({ quality: value as QualityTier })}
-              options={QUALITY_IDS.map((quality) => ({ value: quality, label: t(`quality.${quality}`) }))}
+              checked={composer.sequential}
+              onChange={(checked) => setComposer({ sequential: checked })}
             />
-          </div>
-        )}
-        {spec.supportsSequential && (
-          <div className="is-param-field">
-            <span className="is-field-label">{t('groupGeneration')}</span>
-            <div className="is-inline">
-              <Switch
-                size="small"
-                checked={composer.sequential}
-                onChange={(checked) => setComposer({ sequential: checked })}
-              />
-              {composer.sequential && (
+            {composer.sequential && (
+              <Tooltip title={t('maxImages')}>
                 <InputNumber
                   size="small"
                   min={1}
@@ -483,21 +486,22 @@ export function ComposerPanel() {
                   onChange={(value) => setComposer({ maxImages: Number(value) || 1 })}
                   style={{ width: 78 }}
                 />
-              )}
-            </div>
+              </Tooltip>
+            )}
           </div>
-        )}
-        {spec.supportsTransparent && (
-          <div className="is-param-field">
-            <span className="is-field-label">{t('transparentBg')}</span>
-            <Switch
-              size="small"
-              checked={composer.transparent}
-              onChange={(checked) => setComposer({ transparent: checked })}
-            />
-          </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {spec.supportsTransparent && (
+        <div className="is-field-row is-param-row">
+          <span className="is-field-label">{t('transparentBg')}</span>
+          <Switch
+            size="small"
+            checked={composer.transparent}
+            onChange={(checked) => setComposer({ transparent: checked })}
+          />
+        </div>
+      )}
 
       <div className="is-field-row is-param-row">
         <span className="is-field-label">{t('seed')}</span>
@@ -933,9 +937,6 @@ export function ComposerPanel() {
               ),
             },
           ]}
-          expandIcon={({ isActive }) => (
-            <DownOutlined rotate={isActive ? 180 : 0} style={{ fontSize: 10, color: token.colorTextTertiary }} />
-          )}
         />
       </div>
 

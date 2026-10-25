@@ -1,7 +1,7 @@
 /**
  * 设置抽屉：服务商（下拉选择后配置单个服务商）/ 生成偏好 / 关于。
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   App,
   Button,
@@ -54,6 +54,50 @@ interface Props {
 }
 
 const QUALITY_IDS: QualityTier[] = ['low', 'medium', 'high', 'auto']
+
+function Group({
+  title,
+  desc,
+  bodyClassName,
+  children,
+}: {
+  title: ReactNode
+  desc?: ReactNode
+  bodyClassName?: string
+  children: ReactNode
+}) {
+  return (
+    <section className="is-settings-group">
+      <div className="is-settings-group-head">
+        <div className="is-settings-group-title">{title}</div>
+        {desc ? <div className="is-settings-group-desc">{desc}</div> : null}
+      </div>
+      <div className={`is-settings-group-body ${bodyClassName || ''}`}>{children}</div>
+    </section>
+  )
+}
+
+function Row({
+  label,
+  hint,
+  stacked,
+  children,
+}: {
+  label: ReactNode
+  hint?: ReactNode
+  stacked?: boolean
+  children: ReactNode
+}) {
+  return (
+    <div className={`is-settings-row ${stacked ? 'is-stacked' : ''}`}>
+      <div className="is-settings-row-text">
+        <span className="is-settings-row-label">{label}</span>
+        {hint ? <span className="is-settings-row-hint">{hint}</span> : null}
+      </div>
+      <div className="is-settings-row-control">{children}</div>
+    </div>
+  )
+}
 
 export function SettingsDrawer({ open, onClose }: Props) {
   const state = useStudio()
@@ -348,151 +392,130 @@ function DefaultsTab() {
 
   return (
     <div className="is-settings-list">
-      <div className="is-settings-field">
-        <label>{t('defaultsPurpose')}</label>
-        <Select
-          value={purpose}
-          onChange={(value) => {
-            const preset = PURPOSE_PRESETS[value as PurposeId]
-            void update({ purpose: value as PurposeId, aspect: preset.aspect, tier: preset.tier })
-          }}
-          style={{ width: '100%' }}
-          options={PURPOSE_IDS.map((id) => ({ value: id, label: t(`purpose.${id}.name`) }))}
-        />
-        <div className="is-settings-hint">{t(`purpose.${purpose}.desc`)}</div>
-      </div>
-
-      <div className="is-settings-field">
-        <label>{t('defaultsProvider')}</label>
-        <Segmented
-          value={provider}
-          onChange={(value) => {
-            const next = value as ProviderId
-            const nextMeta = PROVIDERS[next]
-            void update({ provider: next, tier: nextMeta.models[0].defaultTier })
-          }}
-          options={PROVIDER_IDS.map((id) => ({ value: id, label: providerLabel(id) }))}
-        />
-      </div>
-
-      <div className="is-settings-field">
-        <label>{t('defaultsAspect')}</label>
-        <Select
-          value={defaults?.aspect}
-          onChange={(value) => void update({ aspect: value })}
-          options={ASPECTS.map((item) => ({ value: item.value, label: item.label }))}
-          style={{ width: 160 }}
-        />
-      </div>
-
-      <div className="is-settings-field">
-        <label>{t('defaultsTier')}</label>
-        <Segmented
-          value={defaults?.tier}
-          onChange={(value) => void update({ tier: value as ResolutionTier })}
-          options={spec.tiers.map((tier) => ({ value: tier, label: tier }))}
-        />
-      </div>
-
-      {spec.supportsQuality && (
-        <div className="is-settings-field">
-          <label>{t('qualityLabel')}</label>
+      <Group title={t('settingsGroupOutput')} desc={t('settingsGroupOutputDesc')}>
+        <Row label={t('defaultsPurpose')} hint={t(`purpose.${purpose}.desc`)}>
           <Select
-            value={defaults?.quality}
-            onChange={(value) => void update({ quality: value as QualityTier })}
-            style={{ width: 160 }}
-            options={QUALITY_IDS.map((quality) => ({ value: quality, label: t(`quality.${quality}`) }))}
+            value={purpose}
+            onChange={(value) => {
+              const preset = PURPOSE_PRESETS[value as PurposeId]
+              void update({ purpose: value as PurposeId, aspect: preset.aspect, tier: preset.tier })
+            }}
+            style={{ width: 190 }}
+            options={PURPOSE_IDS.map((id) => ({ value: id, label: t(`purpose.${id}.name`) }))}
           />
-        </div>
-      )}
+        </Row>
+        <Row label={t('defaultsProvider')}>
+          <Segmented
+            value={provider}
+            onChange={(value) => {
+              const next = value as ProviderId
+              const nextMeta = PROVIDERS[next]
+              void update({ provider: next, tier: nextMeta.models[0].defaultTier })
+            }}
+            options={PROVIDER_IDS.map((id) => ({ value: id, label: providerLabel(id) }))}
+          />
+        </Row>
+        <Row label={t('defaultsAspect')}>
+          <Select
+            value={defaults?.aspect}
+            onChange={(value) => void update({ aspect: value })}
+            options={ASPECTS.map((item) => ({ value: item.value, label: item.label }))}
+            style={{ width: 120 }}
+          />
+        </Row>
+        <Row label={t('defaultsTier')}>
+          <Segmented
+            value={defaults?.tier}
+            onChange={(value) => void update({ tier: value as ResolutionTier })}
+            options={spec.tiers.map((tier) => ({ value: tier, label: tier }))}
+          />
+        </Row>
+        {spec.supportsQuality && (
+          <Row label={t('qualityLabel')}>
+            <Select
+              value={defaults?.quality}
+              onChange={(value) => void update({ quality: value as QualityTier })}
+              style={{ width: 120 }}
+              options={QUALITY_IDS.map((quality) => ({ value: quality, label: t(`quality.${quality}`) }))}
+            />
+          </Row>
+        )}
+        <Row label={t('defaultsCount')}>
+          <InputNumber
+            min={1}
+            max={provider === 'qwen' ? spec.maxOutputs : 15}
+            value={defaults?.count}
+            onChange={(value) => void update({ count: Number(value) || 1 })}
+            style={{ width: 96 }}
+          />
+        </Row>
+      </Group>
 
-      <div className="is-settings-field">
-        <label>{t('defaultsCount')}</label>
-        <InputNumber
-          min={1}
-          max={provider === 'qwen' ? spec.maxOutputs : 15}
-          value={defaults?.count}
-          onChange={(value) => void update({ count: Number(value) || 1 })}
-          style={{ width: 120 }}
-        />
-      </div>
+      <Group title={t('settingsGroupOptions')} desc={t('settingsGroupOptionsDesc')}>
+        <Row label={t('defaultsWatermark')} hint={t('watermarkHint')}>
+          <Switch checked={defaults?.watermark} onChange={(checked) => void update({ watermark: checked })} />
+        </Row>
+        <Row label={t('defaultsPromptEnhance')}>
+          <Switch checked={defaults?.promptExtend} onChange={(checked) => void update({ promptExtend: checked })} />
+        </Row>
+        <Row label={t('defaultsGroup')}>
+          <Switch checked={defaults?.sequential} onChange={(checked) => void update({ sequential: checked })} />
+        </Row>
+      </Group>
 
-      <div className="is-settings-switch-row">
-        <span>
-          {t('defaultsWatermark')}
-          <span className="is-settings-hint is-inline-hint">{t('watermarkHint')}</span>
-        </span>
-        <Switch checked={defaults?.watermark} onChange={(checked) => void update({ watermark: checked })} />
-      </div>
+      <Group title={t('settingsGroupModels')} desc={t('settingsGroupModelsDesc')}>
+        <Row label={t('optimizeModelLabel')} hint={t('optimizeModelHint')} stacked>
+          <Select
+            value={optimizeValue}
+            onChange={(value) => {
+              if (!value) {
+                void update({ optimizeProviderId: '', optimizeModelId: '' })
+                return
+              }
+              const [providerId, ...rest] = String(value).split('::')
+              void update({ optimizeProviderId: providerId, optimizeModelId: rest.join('::') })
+            }}
+            options={optimizeOptions}
+            placeholder={t('optimizeModelPlaceholder')}
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            notFoundContent={t('optimizeModelEmpty')}
+          />
+        </Row>
+        <Row label={t('toolModelLabel')} hint={t('toolModelHint')} stacked>
+          <Select
+            value={toolValue}
+            onChange={(value) => {
+              if (!value) {
+                void update({ toolProvider: '', toolModel: '' })
+                return
+              }
+              const [providerId, ...rest] = String(value).split('::')
+              void update({ toolProvider: providerId as ProviderId, toolModel: rest.join('::') })
+            }}
+            options={toolOptions}
+            placeholder={t('toolModelPlaceholder')}
+            allowClear
+            showSearch
+            optionFilterProp="label"
+          />
+        </Row>
+      </Group>
 
-      <div className="is-settings-switch-row">
-        <span>{t('defaultsPromptEnhance')}</span>
-        <Switch checked={defaults?.promptExtend} onChange={(checked) => void update({ promptExtend: checked })} />
-      </div>
-
-      <div className="is-settings-field">
-        <label>{t('optimizeModelLabel')}</label>
-        <Select
-          value={optimizeValue}
-          onChange={(value) => {
-            if (!value) {
-              void update({ optimizeProviderId: '', optimizeModelId: '' })
-              return
-            }
-            const [providerId, ...rest] = String(value).split('::')
-            void update({ optimizeProviderId: providerId, optimizeModelId: rest.join('::') })
-          }}
-          options={optimizeOptions}
-          placeholder={t('optimizeModelPlaceholder')}
-          style={{ width: '100%' }}
-          allowClear
-          showSearch
-          optionFilterProp="label"
-          notFoundContent={t('optimizeModelEmpty')}
-        />
-        <div className="is-settings-hint">{t('optimizeModelHint')}</div>
-      </div>
-
-      <div className="is-settings-field">
-        <label>{t('toolModelLabel')}</label>
-        <Select
-          value={toolValue}
-          onChange={(value) => {
-            if (!value) {
-              void update({ toolProvider: '', toolModel: '' })
-              return
-            }
-            const [providerId, ...rest] = String(value).split('::')
-            void update({ toolProvider: providerId as ProviderId, toolModel: rest.join('::') })
-          }}
-          options={toolOptions}
-          placeholder={t('toolModelPlaceholder')}
-          style={{ width: '100%' }}
-          allowClear
-          showSearch
-          optionFilterProp="label"
-        />
-        <div className="is-settings-hint">{t('toolModelHint')}</div>
-      </div>
-
-      <div className="is-settings-switch-row">
-        <span>{t('defaultsGroup')}</span>
-        <Switch checked={defaults?.sequential} onChange={(checked) => void update({ sequential: checked })} />
-      </div>
-
-      <div className="is-settings-field">
-        <label>{t('downloadDir')}</label>
-        <div className="is-inline">
-          <Input readOnly value={defaults?.downloadDir || ''} placeholder={t('downloadDirEmpty')} />
-          <Button size="small" icon={<FolderOpenOutlined />} onClick={() => void chooseDir()}>
-            {t('chooseDir')}
-          </Button>
-          <Button size="small" type="text" onClick={() => void openDir()}>
-            {t('openFolder')}
-          </Button>
-        </div>
-        <div className="is-settings-hint">{t('downloadDirHint')}</div>
-      </div>
+      <Group title={t('settingsGroupStorage')} desc={t('settingsGroupStorageDesc')}>
+        <Row label={t('downloadDir')} hint={t('downloadDirHint')} stacked>
+          <div className="is-inline">
+            <Input readOnly value={defaults?.downloadDir || ''} placeholder={t('downloadDirEmpty')} />
+            <Button size="small" icon={<FolderOpenOutlined />} onClick={() => void chooseDir()}>
+              {t('chooseDir')}
+            </Button>
+            <Button size="small" type="text" onClick={() => void openDir()}>
+              {t('openFolder')}
+            </Button>
+          </div>
+        </Row>
+      </Group>
     </div>
   )
 }
@@ -510,55 +533,52 @@ function AboutTab() {
 
   return (
     <div className="is-settings-list">
-      <div className="is-about-head">
-        <div className="is-about-logo">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 2.4l2.55 6.05L20.6 11l-6.05 2.55L12 19.6l-2.55-6.05L3.4 11l6.05-2.55z" />
-            <path d="M18.6 15.4l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z" />
-          </svg>
-        </div>
-        <div>
-          <div className="is-about-title">{t('title')}</div>
-          <div className="is-about-version">
-            {t('version')} {PLUGIN_VERSION}
+      <Group title={t('settingsGroupApp')} bodyClassName="is-about-body">
+        <div className="is-about-head">
+          <div className="is-about-logo">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 2.4l2.55 6.05L20.6 11l-6.05 2.55L12 19.6l-2.55-6.05L3.4 11l6.05-2.55z" />
+              <path d="M18.6 15.4l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z" />
+            </svg>
+          </div>
+          <div>
+            <div className="is-about-title">{t('title')}</div>
+            <div className="is-about-version">
+              {t('version')} {PLUGIN_VERSION}
+            </div>
           </div>
         </div>
-      </div>
-      <div className="is-about-desc">{t('aboutDesc')}</div>
-
-      <div className="is-settings-field">
-        <label>{t('dataDir')}</label>
-        <div className="is-inline">
-          <Input readOnly value={state.dataDir} />
-          <Button
-            size="small"
-            icon={<FolderOpenOutlined />}
-            onClick={async () => {
-              const res = await invoke<{ error?: string }>('open-data-dir')
-              if (res?.error) message.warning(res.error)
-            }}
-          >
-            {t('openFolder')}
-          </Button>
-        </div>
-        <div className="is-settings-hint">{t('dataDirHint')}</div>
-      </div>
-
-      <div className="is-about-stats">
-        <div>
+        <div className="is-about-desc">{t('aboutDesc')}</div>
+        <div className="is-about-stats">
           <span>{t('countLabel', { count: state.total })}</span>
+          <span>{t('storageUsed', { size: formatBytes(state.usageBytes) })}</span>
         </div>
-        <div>{t('storageUsed', { size: formatBytes(state.usageBytes) })}</div>
-      </div>
+      </Group>
 
-      <div className="is-settings-field">
-        <label>{t('usage')}</label>
+      <Group title={t('settingsGroupStorage')}>
+        <Row label={t('dataDir')} hint={t('dataDirHint')} stacked>
+          <div className="is-inline">
+            <Input readOnly value={state.dataDir} />
+            <Button
+              size="small"
+              icon={<FolderOpenOutlined />}
+              onClick={async () => {
+                const res = await invoke<{ error?: string }>('open-data-dir')
+                if (res?.error) message.warning(res.error)
+              }}
+            >
+              {t('openFolder')}
+            </Button>
+          </div>
+        </Row>
+      </Group>
+
+      <Group title={t('usage')} bodyClassName="is-about-body">
         <div className="is-settings-hint">{t('usageHint')}</div>
-      </div>
-
-      <Typography.Text type="secondary" className="is-about-platform">
-        {t('subtitle')}
-      </Typography.Text>
+        <Typography.Text type="secondary" className="is-about-platform">
+          {t('subtitle')}
+        </Typography.Text>
+      </Group>
     </div>
   )
 }

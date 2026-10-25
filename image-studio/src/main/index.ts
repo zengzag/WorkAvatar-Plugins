@@ -24,7 +24,6 @@ import {
   downloadImage,
   getDataDir,
   imageCount,
-  importDerivedImage,
   initImageStore,
   listImages,
   openDataDir,
@@ -220,24 +219,6 @@ function registerIpc(ctx: PluginContext): void {
     const full = typeof payload === 'object' && Boolean(payload?.full)
     const dataUrl = readImageData(String(id || ''), { full })
     return dataUrl ? { dataUrl } : { error: t('errors.imageNotFound') }
-  })
-
-  ctx.ipc.handle('import-image', (payload: any) => {
-    if (!payload?.buffer || !payload?.sourceId) return { error: t('errors.imageNotFound') }
-    const buffer = Buffer.from(payload.buffer as ArrayBuffer)
-    if (buffer.byteLength === 0) return { error: t('errors.imageNotFound') }
-    const record = importDerivedImage(buffer, String(payload.sourceId), String(payload.label || ''), {
-      overlay: {
-        title: payload.title || '',
-        subtitle: payload.subtitle || '',
-        position: payload.position || 'bottomLeft',
-        color: payload.color || 'light',
-        size: payload.size || 'medium',
-      },
-    })
-    if (!record) return { error: t('errors.imageNotFound') }
-    broadcast('images-changed', { type: 'create', id: record.id })
-    return record
   })
 
   ctx.ipc.handle('pick-download-dir', async (payload: any) => ({ path: await browseDirectory(payload) }))

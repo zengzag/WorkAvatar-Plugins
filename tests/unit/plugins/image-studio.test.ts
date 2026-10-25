@@ -397,7 +397,7 @@ describe('image-studio activate', () => {
       'settings-get', 'settings-save', 'settings-test',
       'list-images', 'generate', 'cancel',
       'toggle-favorite', 'delete-image', 'save-image-as', 'download-image',
-      'copy-image', 'show-in-folder', 'read-image-data', 'import-image',
+      'copy-image', 'show-in-folder', 'read-image-data',
       'pick-download-dir', 'open-download-dir', 'open-data-dir',
     ]
     for (const channel of channels) {

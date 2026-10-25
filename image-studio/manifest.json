@@ -3,7 +3,7 @@
   "name": "Image Studio",
   "version": "1.3.0",
   "engine": ">=0.2.0",
-  "description": "PPT 配图、科研配图与架构/流程图工作台：接入火山 Seedream、千问 Image 与 OpenAI GPT Image，支持场景预设、提示词 AI 优化、版面留白、透明背景、标题排版与本地作品库",
+  "description": "PPT 配图、科研配图与架构/流程图工作台：接入火山 Seedream、千问 Image 与 OpenAI GPT Image，支持场景预设、提示词 AI 优化、版面留白、透明背景与本地作品库",
   "author": "WorkAvatar",
   "main": "dist/main/index.cjs",
   "renderer": "dist/renderer/index.js",
@@ -13,7 +13,7 @@
     "llm-models", "optimize-prompt",
     "list-images", "generate", "cancel",
     "toggle-favorite", "delete-image", "save-image-as", "download-image",
-    "copy-image", "show-in-folder", "read-image-data", "import-image",
+    "copy-image", "show-in-folder", "read-image-data",
     "pick-download-dir", "open-download-dir", "open-data-dir"
   ],
   "capabilities": [

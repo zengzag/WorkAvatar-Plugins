@@ -684,26 +684,6 @@ export async function readImageData(id: string, full = false): Promise<string> {
   return res?.dataUrl || ''
 }
 
-export async function importDerivedImage(payload: {
-  buffer: ArrayBuffer
-  sourceId: string
-  label: string
-  title: string
-  subtitle: string
-  position: string
-  color: string
-  size: string
-}): Promise<GeneratedImage | null> {
-  try {
-    const res = await invoke<GeneratedImage | { error: string }>('import-image', payload)
-    if (!res || 'error' in res) return null
-    await refreshImages()
-    return res
-  } catch {
-    return null
-  }
-}
-
 export async function useAsReference(id: string): Promise<{ ok: boolean; error?: string }> {
   const dataUrl = await readImageData(id, false)
   if (!dataUrl) return { ok: false, error: t('errors.imageNotFound') }

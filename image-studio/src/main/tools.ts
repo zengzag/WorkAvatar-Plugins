@@ -39,7 +39,7 @@ export function registerImageTool(ctx: PluginContext): void {
 - purpose：用途预设，决定默认比例与画面风格。可选 ppt-slide（PPT 配图）、ppt-cover（PPT 封面）、sci-schematic（科研示意图）、paper-figure（论文插图）、chart（数据图表）、infographic（信息图）、architecture（架构图）、flowchart（流程图）、poster（学术海报）、free（自由创作）。默认取用户设置
 - aspect：画面比例，可选 ${ASPECTS.map((a) => a.value).join(' / ')}；不传则用用途预设（PPT 为 16:9）
 - size：自定义尺寸，如 1920x1080（优先级高于 aspect）
-- title / subtitle：需要模型在图中渲染的文字（可选，易出现错字，建议改用标题排版）
+- title / subtitle：需要模型在图中渲染的文字（可选，易出现错字）
 - no_text：是否禁止图中出现任何文字（科研配图推荐 true）
 - transparent：是否输出透明背景（需模型支持）
 - reference_images：参考图数组，支持公网 URL 或 data:image/...;base64,...（图生图/多图融合）
