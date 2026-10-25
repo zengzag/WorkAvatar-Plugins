@@ -284,6 +284,11 @@ export function createMockContext(pluginId = 'test-plugin'): {
       keys: async () => Array.from(kv.keys()),
     },
     services,
+    settings: {
+      getAll: () => ({}),
+      get: () => undefined,
+      onChanged: () => () => { /* noop */ },
+    },
     webview,
     contributions: {
       registerAgentTools: contributions.registerAgentTools,
