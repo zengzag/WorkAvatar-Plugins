@@ -23,15 +23,29 @@ const CONFIG_KEY = 'calendar_outlook_sync_config'
 const STATE_KEY = 'calendar_outlook_sync_state'
 /** 映射表归属的 Outlook 账号 id：换号登录时据此清空映射 */
 const ACCOUNT_KEY = 'calendar_outlook_sync_account'
-/** 远端事件回指本地 id 的单值扩展属性（Outlook 界面不可见，映射丢失后凭它精确找回）；todoTask 不支持此属性，待办仅用模糊匹配 */
+/** 远端事件回指本地 id 的单值扩展属性（Outlook 界面不可见，映射丢失后凭它精确找回） */
 const LOCAL_ID_PROP = 'String {7c1f5a8e-2b64-4d9a-9f3e-8a5d1c6b0e42} Name WorkAvatarId'
+/** 待办回指本地 id 的开放扩展：todoTask 不支持 singleValueExtendedProperties，只能用 open extension */
+const TODO_EXT_NAME = 'com.workavatar.sync'
 
-/** 远端对象：id + 回指的本地 id + 去重键 */
-interface RemoteObj { id: string; localId?: string; key: string; used: boolean }
+/** 远端对象：id + 回指的本地 id + 去重键（待办额外记录状态与到期，用于完成历史/撤销判断） */
+interface RemoteObj {
+  id: string
+  localId?: string
+  key: string
+  title?: string
+  hasRecurrence?: boolean
+  status?: string
+  dueDateTime?: string
+  dueTimeZone?: string
+  used: boolean
+}
 interface RemoteIndex {
   objs: RemoteObj[]
   byMarker: Map<string, RemoteObj[]>
   byFuzzy: Map<string, RemoteObj[]>
+  /** 待办索引是否成功带出开放扩展（不支持时不能写标记，也只能按模糊键回收） */
+  withExtensions?: boolean
 }
 
 const DEFAULT_CONFIG: OutlookSyncConfig = {
@@ -57,6 +71,8 @@ class OutlookSyncService {
   private syncFailCount = 0
   private calendarId: string | null = null
   private todoListId: string | null = null
+  /** 已尝试写入待办标记的远端 id（扩展写入失败时避免每轮同步重复请求） */
+  private markerAttempted = new Set<string>()
 
   constructor(private ctx: PluginContext) {
     this.db = ctx.storage.openSqlite('index')
@@ -69,10 +85,16 @@ class OutlookSyncService {
         local_id TEXT NOT NULL,
         remote_id TEXT NOT NULL,
         synced_updated_at INTEGER NOT NULL,
+        synced_due INTEGER,
+        synced_rule TEXT,
         synced_at INTEGER NOT NULL DEFAULT (unixepoch())
       );
       CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_sync_map_unique ON calendar_sync_map(target, local_type, local_id);
     `)
+    // 存量库补列：记录上次推送时的到期时间与重复规则指纹，用于判定「完成推进 / 撤销 / 改期 / 改规则」
+    const cols = new Set((this.db.prepare('PRAGMA table_info(calendar_sync_map)').all() as any[]).map(c => c.name))
+    if (!cols.has('synced_due')) this.db.exec('ALTER TABLE calendar_sync_map ADD COLUMN synced_due INTEGER')
+    if (!cols.has('synced_rule')) this.db.exec('ALTER TABLE calendar_sync_map ADD COLUMN synced_rule TEXT')
   }
 
   start(): void {
@@ -378,7 +400,7 @@ class OutlookSyncService {
     const mapByLocal = new Map(mapRows.map(r => [r.local_id, r]))
     const localIds = new Set(items.map(i => i.id))
     // 映射全空但本地有数据：映射可能被旧版本登出逻辑清空过，先回收远端已有对象防重复创建
-    const remoteIndex = !mapRows.length && items.length ? await this.loadRemoteIndex(token, 'event') : null
+    const remoteIndex = !mapRows.length && items.length ? await this.loadEventIndex(token) : null
 
     for (const event of items) {
       const mapping = mapByLocal.get(event.id)
@@ -410,87 +432,361 @@ class OutlookSyncService {
       await sleep(150)
     }
 
-    if (remoteIndex) await this.pruneRemote(token, 'event', remoteIndex, result)
+    if (remoteIndex) await this.pruneEventRemote(token, remoteIndex, result)
     await this.syncDeletions(token, 'event', localIds, mapRows, result)
   }
 
   // ====== TODO 同步 ======
 
+  /**
+   * 待办同步（按 Graph To Do 实测语义建模）：
+   *
+   * To Do 的重复任务 = 一条「活动任务」+ 每次完成生成的「已完成副本」：
+   * - 活动任务 id 在完成时保持不变，dueDateTime 由服务端推进到下一次，numbered 次数递减；
+   * - 完成一次会在云端新增一条 completed 副本（历史）；
+   * - 对重复任务 PATCH dueDateTime 会被服务端当成「换到另一个 occurrence」而派生新任务，
+   *   这正是旧版本「每次修改云端多一条」的根因，因此重复任务永不 PATCH dueDateTime；
+   * - 改期/跳过/改规则用 PATCH recurrence 改 startDate（实测可用），取消规则用 `recurrence: null`；
+   * - 实测删除任务不会派生新任务。
+   *
+   * 因此：一条本地待办对应一条活动任务，完成历史由云端自己生成，映射 id 在完成时保持稳定。
+   */
   private async syncTodos(token: string, result: OutlookSyncResult): Promise<void> {
     const calendar = getCalendarService(this.ctx)
     const items = calendar.listAllTodos()
     const mapRows = this.loadMap('todo')
     const mapByLocal = new Map(mapRows.map(r => [r.local_id, r]))
     const localIds = new Set(items.map(i => i.id))
-    const remoteIndex = !mapRows.length && items.length ? await this.loadRemoteIndex(token, 'todo') : null
+    const localTitles = new Set(items.map(i => i.title))
+    const remoteIndex = await this.loadTodoIndex(token)
+    const remoteById = new Map(remoteIndex.objs.map(o => [o.id, o]))
+    const claimed = new Set<string>()
+    // 映射指向的远端对象一律保护（本轮 PATCH 失败也不能被当成「未认领副本」清理）
+    const mappedRemoteIds = new Set(mapRows.map(r => r.remote_id))
+
+    // 本地已删除的待办：先删远端，避免它们被当成「未认领副本」重复清理
+    await this.syncDeletions(token, 'todo', localIds, mapRows, result)
 
     for (const todo of items) {
       const mapping = mapByLocal.get(todo.id)
+      // 无到期时间的「重复」待办无法表达系列，按普通待办处理
+      const rule = todo.recurrence_rule && todo.due_at != null ? todo.recurrence_rule : null
       try {
-        if (!mapping) {
-          // 待办无远端标记：仅映射全空时按标题+截止时间回收，其余按新对象创建
-          const remoteId = remoteIndex
-            ? this.takeRemote(remoteIndex, todo.id, this.remoteKey(todo.title, todo.due_at ? this.toGraphDateTime(todo.due_at, todo.tzid).dateTime : undefined))
-            : undefined
-          if (remoteId) {
-            // 命中已有远端任务：回写绑定（更新不发送 recurrence，见 todoToGraphBody）
-            const id = await this.patchOrReplaceTodo(token, remoteId, todo)
-            this.upsertMap('todo', todo.id, id, todo.updated_at)
-            result.updated++
-          } else {
-            const created = await this.graph(token, 'POST', `/me/todo/lists/${this.todoListId}/tasks`, this.todoToGraphBody(todo))
-            this.upsertMap('todo', todo.id, created.id, todo.updated_at)
-            result.created++
-          }
-        } else if (todo.updated_at > mapping.synced_updated_at) {
-          const id = await this.patchOrReplaceTodo(token, mapping.remote_id, todo)
-          this.upsertMap('todo', todo.id, id, todo.updated_at)
-          result.updated++
+        // 重复系列在本地已结束（没有下一次）：云端不应再保留活动任务
+        if (rule && todo.status === 'completed') {
+          await this.finishTodoSeries(token, todo, mapping, remoteById, result)
+          if (mapping) claimed.add(mapping.remote_id)
+          continue
         }
+        let remote = mapping ? remoteById.get(mapping.remote_id) : undefined
+        if (remote && claimed.has(remote.id)) remote = undefined
+        if (!remote) {
+          if (mapping) this.deleteMap('todo', todo.id)
+          remote = this.findTodoRemote(remoteIndex, todo)
+          if (remote) this.ctx.services.logger.info(`Todo 远端对象缺失映射，回收 ${remote.id}`)
+        }
+        if (remote) {
+          claimed.add(remote.id)
+
+          // 遗留状态矫正：本地重复 ↔ 远端普通任务（旧版本曾只推过无规则的镜像）
+          if (rule && !remote.hasRecurrence) {
+            await this.patchTodoRecurrence(token, remote.id, todo)
+            remote.hasRecurrence = true
+            this.saveTodoMap(todo, remote.id)
+            if (mapping) {
+              mapping.synced_updated_at = todo.updated_at
+              mapping.synced_due = todo.due_at
+              mapping.synced_rule = this.todoRuleKey(rule)
+            }
+            result.updated++
+          } else if (!rule && remote.hasRecurrence) {
+            await this.graph(token, 'PATCH', `/me/todo/lists/${this.todoListId}/tasks/${remote.id}`, { recurrence: null })
+            remote.hasRecurrence = false
+            result.updated++
+          }
+
+          if (!mapping || todo.updated_at !== mapping.synced_updated_at) {
+            const effectiveId = rule
+              ? await this.pushTodoRecurringChange(token, todo, mapping, remote, remoteIndex, result)
+              : await this.patchPlainTodo(token, remote.id, todo, result)
+            this.saveTodoMap(todo, effectiveId)
+            claimed.add(effectiveId)
+          }
+          if (!remote.localId && remoteIndex.withExtensions && (!mapping || mapping.remote_id !== remote.id)) {
+            await this.writeTodoMarker(token, remote.id, todo.id)
+          }
+          continue
+        }
+        const created = await this.graph(token, 'POST', `/me/todo/lists/${this.todoListId}/tasks`, this.todoToGraphBody(todo))
+        claimed.add(created.id)
+        this.saveTodoMap(todo, created.id)
+        if (remoteIndex.withExtensions) await this.writeTodoMarker(token, created.id, todo.id)
+        result.created++
       } catch (err: any) {
+        if (err?.status === 404 && mapping) this.deleteMap('todo', todo.id)
         result.failed++
         this.pushError(result, `待办「${todo.title}」: ${err?.message || err}`)
       }
       await sleep(150)
     }
 
-    if (remoteIndex) await this.pruneRemote(token, 'todo', remoteIndex, result)
-    await this.syncDeletions(token, 'todo', localIds, mapRows, result)
+    await this.pruneTodoRemote(token, remoteIndex, claimed, mappedRemoteIds, localTitles, result)
   }
 
-  /**
-   * 更新远端待办：先 PATCH；若因重复规则冲突（400）失败则删除重建。
-   * To-Do 的 PATCH 无法更新重复规则（见 todoToGraphBody），远端旧规则与新截止时间冲突时
-   * 会整条 400（如 ErrorRecurrenceEndDateTooBig / Edm.Date 转换错误）。此时删除远端任务并按
-   * 本地最新数据（含重复规则）重建：既消除冲突，又让重复区间重新锚定到当前截止时间，避免再次越界。
-   * 返回最终有效的远端 id（重建后为新 id）。
-   */
-  private async patchOrReplaceTodo(token: string, remoteId: string, todo: CalendarTodo): Promise<string> {
-    try {
-      await this.graph(token, 'PATCH', `/me/todo/lists/${this.todoListId}/tasks/${remoteId}`, this.todoToGraphBody(todo, false))
-      return remoteId
-    } catch (err: any) {
-      if (!(todo.recurrence_rule && this.isRecurrencePatchConflict(err))) throw err
-      this.ctx.services.logger.info(`Todo recurrence conflict, recreating remote task ${remoteId}`)
-      return this.replaceRemoteTodo(token, remoteId, todo)
-    }
-  }
-
-  /** 删除远端待办并重建（含重复规则），返回新远端 id；删除时 404 视为已不存在 */
-  private async replaceRemoteTodo(token: string, remoteId: string, todo: CalendarTodo): Promise<string> {
+  /** 删除远端待办（404 视为已不存在） */
+  private async deleteTodoRemote(token: string, remoteId: string): Promise<void> {
     try {
       await this.graph(token, 'DELETE', `/me/todo/lists/${this.todoListId}/tasks/${remoteId}`)
     } catch (err: any) {
       if (err?.status !== 404) throw err
     }
-    const created = await this.graph(token, 'POST', `/me/todo/lists/${this.todoListId}/tasks`, this.todoToGraphBody(todo))
-    return created.id
   }
 
-  /** 判断 PATCH 失败是否为重复规则导致的 400（错误码/正文含 recurrence 或 Edm.Date） */
-  private isRecurrencePatchConflict(err: any): boolean {
-    if (err?.status !== 400) return false
-    return /recurrence/i.test(String(err?.graphCode || '')) || /recurrence|Edm\.Date/i.test(String(err?.message || ''))
+  /** 普通（非重复）待办字段更新：允许带 dueDateTime */
+  private async patchPlainTodo(token: string, remoteId: string, todo: CalendarTodo, result: OutlookSyncResult): Promise<string> {
+    await this.graph(token, 'PATCH', `/me/todo/lists/${this.todoListId}/tasks/${remoteId}`, this.todoToGraphBody(todo))
+    result.updated++
+    return remoteId
+  }
+
+  /**
+   * 重复待办推送：规则变更 / 完成推进 / 撤销完成 / 改期跳过，全部避免 PATCH dueDateTime。
+   * 返回最终有效的远端活动任务 id（撤销完成时可能改绑到复活的完成副本）。
+   */
+  private async pushTodoRecurringChange(
+    token: string,
+    todo: CalendarTodo,
+    mapping: any,
+    remote: RemoteObj,
+    idx: RemoteIndex,
+    result: OutlookSyncResult,
+  ): Promise<string> {
+    const rule = todo.recurrence_rule!
+    const due = todo.due_at!
+    const prevDue: number | null = mapping?.synced_due ?? null
+    const ruleChanged = !mapping || mapping.synced_rule !== this.todoRuleKey(rule)
+
+    if (ruleChanged) {
+      await this.patchTodoRecurrence(token, remote.id, todo)
+      result.updated++
+      return remote.id
+    }
+
+    if (prevDue != null && due > prevDue) {
+      // 本地完成了若干次实例：云端同样「完成」对应次数，由服务端推进活动任务并生成完成副本
+      const done = (rule.overrides ?? [])
+        .filter(o => o.status === 'completed' && o.recurrence_id >= prevDue && o.recurrence_id < due)
+        .sort((a, b) => a.recurrence_id - b.recurrence_id)
+      if (done.length > 0) {
+        let last: any = null
+        for (const o of done) {
+          last = await this.graph(token, 'PATCH', `/me/todo/lists/${this.todoListId}/tasks/${remote.id}`, {
+            title: todo.title,
+            body: { contentType: 'text', content: todo.description || '' },
+            importance: todo.priority === 'high' ? 'high' : todo.priority === 'low' ? 'low' : 'normal',
+            status: 'completed',
+            completedDateTime: this.toGraphDateTime(o.completed_at ?? todo.updated_at, todo.tzid),
+          })
+          result.updated++
+        }
+        // numbered 次数用尽时服务端会清掉规则：恢复成本地规则，避免云端系列意外终止
+        if (last && !last.recurrence) await this.patchTodoRecurrence(token, remote.id, todo)
+        return remote.id
+      }
+      // 没有完成记录却前移：本地改期/跳过本次 → 用 startDate 重锚，避免服务端派生新任务
+      await this.patchTodoRecurrence(token, remote.id, todo)
+      result.updated++
+      return remote.id
+    }
+
+    if (prevDue != null && due < prevDue) {
+      // 撤销完成：优先复活该次 occurrence 的已完成副本，否则把系列锚点移回
+      const reopenedId = await this.reopenTodoOccurrence(token, todo, remote, idx, result)
+      if (reopenedId) return reopenedId
+      await this.patchTodoRecurrence(token, remote.id, todo)
+      result.updated++
+      return remote.id
+    }
+
+    // 仅字段变化（标题/描述/优先级/提醒/状态）
+    await this.graph(token, 'PATCH', `/me/todo/lists/${this.todoListId}/tasks/${remote.id}`, this.todoFieldsBody(todo))
+    result.updated++
+    return remote.id
+  }
+
+  /** 撤销完成：把该次 occurrence 的已完成副本复活为活动任务，并删除原活动任务 */
+  private async reopenTodoOccurrence(
+    token: string,
+    todo: CalendarTodo,
+    live: RemoteObj,
+    idx: RemoteIndex,
+    result: OutlookSyncResult,
+  ): Promise<string | null> {
+    const dueDate = this.localDateStr(todo.due_at!, todo.tzid)
+    const copy = idx.objs.find(o =>
+      o.id !== live.id
+      && o.status === 'completed'
+      && o.title === todo.title
+      && this.remoteObjDate(o, todo.tzid) === dueDate,
+    )
+    if (!copy) return null
+    await this.graph(token, 'PATCH', `/me/todo/lists/${this.todoListId}/tasks/${copy.id}`, {
+      ...this.todoFieldsBody(todo),
+      status: 'notStarted',
+      completedDateTime: null,
+    })
+    await this.deleteTodoRemote(token, live.id)
+    if (!copy.hasRecurrence) await this.patchTodoRecurrence(token, copy.id, todo)
+    result.updated++
+    return copy.id
+  }
+
+  /** 重复系列结束时清理：完成最后一次（保留云端完成历史）→ 清规则 → 删除活动任务 */
+  private async finishTodoSeries(
+    token: string,
+    todo: CalendarTodo,
+    mapping: any,
+    remoteById: Map<string, RemoteObj>,
+    result: OutlookSyncResult,
+  ): Promise<void> {
+    if (!mapping) return
+    const remote = remoteById.get(mapping.remote_id)
+    if (!remote) {
+      this.deleteMap('todo', todo.id)
+      return
+    }
+    if (todo.updated_at !== mapping.synced_updated_at) {
+      // 本次刚刚完成最后一次：先完成活动任务，保留云端完成副本
+      const overrides = (todo.recurrence_rule?.overrides ?? [])
+        .filter(o => o.status === 'completed')
+        .sort((a, b) => a.recurrence_id - b.recurrence_id)
+      const last = overrides[overrides.length - 1]
+      const resp = await this.graph(token, 'PATCH', `/me/todo/lists/${this.todoListId}/tasks/${remote.id}`, {
+        status: 'completed',
+        completedDateTime: this.toGraphDateTime(last?.completed_at ?? todo.updated_at, todo.tzid),
+      })
+      result.updated++
+      // 服务端已把活动任务标记为完成（没有下一次）：保留该完成记录，只解除映射
+      if (resp?.status === 'completed') {
+        this.deleteMap('todo', todo.id)
+        return
+      }
+    }
+    // 清除规则后删除活动任务，避免云端继续派生下一次
+    await this.graph(token, 'PATCH', `/me/todo/lists/${this.todoListId}/tasks/${remote.id}`, { recurrence: null })
+    await this.deleteTodoRemote(token, remote.id)
+    this.deleteMap('todo', todo.id)
+  }
+
+  /** 规则指纹（不含 overrides/rdates：完成实例不应被视为规则变更） */
+  private todoRuleKey(rule: RecurrenceRule): string {
+    return JSON.stringify({
+      freq: rule.freq, interval: rule.interval, count: rule.count, until: rule.until,
+      byday: rule.byday, bymonthday: rule.bymonthday, bymonth: rule.bymonth, bysetpos: rule.bysetpos,
+    })
+  }
+
+  /** numbered 规则的剩余次数：总次数 - 当前到期之前的实例（完成/跳过都会消耗次数） */
+  private todoRemainingCount(todo: CalendarTodo): number | undefined {
+    const rule = todo.recurrence_rule
+    if (!rule?.count || !todo.due_at) return undefined
+    const dueDate = this.localDateStr(todo.due_at, todo.tzid)
+    const consumed = (rule.overrides ?? []).filter(o => this.localDateStr(o.recurrence_id, todo.tzid) < dueDate).length
+    return Math.max(1, rule.count - consumed)
+  }
+
+  /** 本地 unix 秒 → 本地时区日期 YYYY-MM-DD */
+  private localDateStr(unixSec: number, tzid?: string): string {
+    return this.toGraphDateTime(unixSec, tzid || '', true).dateTime
+  }
+
+  /** 远端 dueDateTime → 本地时区日期（UTC 值需换算；Windows 时区名的 dateTime 已是当地时间） */
+  private remoteObjDate(obj: RemoteObj, tzid?: string): string {
+    if (!obj.dueDateTime) return ''
+    const zone = obj.dueTimeZone || 'UTC'
+    if (zone.toUpperCase() === 'UTC') {
+      const sec = Math.floor(Date.parse(obj.dueDateTime.endsWith('Z') ? obj.dueDateTime : `${obj.dueDateTime}Z`) / 1000)
+      return Number.isFinite(sec) ? this.localDateStr(sec, tzid) : ''
+    }
+    return obj.dueDateTime.slice(0, 10)
+  }
+
+  /** 映射丢失时回收既有活动任务：先扩展标记，再标题+截止时间，最后标题 */
+  private findTodoRemote(idx: RemoteIndex, todo: CalendarTodo): RemoteObj | undefined {
+    const dueKey = todo.due_at ? this.toGraphDateTime(todo.due_at, todo.tzid).dateTime : undefined
+    const fuzzyKey = this.remoteKey(todo.title, dueKey)
+    const pickLive = (arr?: RemoteObj[]) => arr?.find(o => !o.used && o.status !== 'completed')
+    const marked = pickLive(idx.byMarker.get(todo.id))
+    if (marked) { marked.used = true; return marked }
+    const fuzzy = pickLive(idx.byFuzzy.get(fuzzyKey))
+    if (fuzzy) { fuzzy.used = true; return fuzzy }
+    const byTitle = idx.objs.find(o => !o.used && o.status !== 'completed' && o.title === todo.title)
+    if (byTitle) { byTitle.used = true; return byTitle }
+    return undefined
+  }
+
+  /** 重复待办：字段 + recurrence（startDate 取当前到期日，改期/改规则时活动任务一并重锚） */
+  private async patchTodoRecurrence(token: string, remoteId: string, todo: CalendarTodo): Promise<void> {
+    const path = `/me/todo/lists/${this.todoListId}/tasks/${remoteId}`
+    const fields = this.todoFieldsBody(todo)
+    const recurrence = this.todoRecurrence(todo) ?? null
+    try {
+      await this.graph(token, 'PATCH', path, { ...fields, recurrence })
+    } catch (err: any) {
+      // 部分租户不支持 endDate（until）等 range 变体：退化为 noEnd，保证规则/改期仍能落地
+      const startDate = recurrence?.range?.startDate
+      if (err?.status !== 400 || !startDate) throw err
+      await this.graph(token, 'PATCH', path, {
+        ...fields,
+        recurrence: { pattern: recurrence.pattern, range: { type: 'noEnd', startDate } },
+      })
+    }
+  }
+
+  /** 本地重复规则 → Graph recurrence；numbered 使用剩余次数 */
+  private todoRecurrence(todo: CalendarTodo): any {
+    if (!todo.recurrence_rule || !todo.due_at) return undefined
+    return this.ruleToGraphRecurrence(todo.recurrence_rule, todo.due_at, todo.tzid, this.todoRemainingCount(todo))
+  }
+
+  /** 重复待办可安全 PATCH 的字段（绝不含 dueDateTime） */
+  private todoFieldsBody(todo: CalendarTodo): any {
+    const body: any = {
+      title: todo.title,
+      body: { contentType: 'text', content: todo.description || '' },
+      importance: todo.priority === 'high' ? 'high' : todo.priority === 'low' ? 'low' : 'normal',
+      status: todo.status === 'completed' ? 'completed' : todo.status === 'in_progress' ? 'inProgress' : 'notStarted',
+    }
+    if (todo.reminders?.length && todo.due_at) {
+      const offsetMin = this.isAllDayTodo(todo)
+        ? Math.min(...todo.reminders.map(r => Math.abs(r)))
+        : 0
+      const remindAt = todo.due_at - offsetMin * 60
+      if (remindAt > Math.floor(Date.now() / 1000)) {
+        body.isReminderOn = true
+        body.reminderDateTime = this.toGraphDateTime(remindAt, todo.tzid)
+      } else {
+        body.isReminderOn = false
+      }
+    } else {
+      body.isReminderOn = false
+    }
+    return body
+  }
+
+  /** 写入回指本地 id 的开放扩展；失败仅记日志（映射表仍是权威绑定） */
+  private async writeTodoMarker(token: string, remoteId: string, localId: string): Promise<void> {
+    if (this.markerAttempted.has(remoteId)) return
+    this.markerAttempted.add(remoteId)
+    try {
+      await this.graph(token, 'POST', `/me/todo/lists/${this.todoListId}/tasks/${remoteId}/extensions`, {
+        '@odata.type': 'microsoft.graph.openTypeExtension',
+        extensionName: TODO_EXT_NAME,
+        localId,
+      })
+    } catch (err: any) {
+      this.ctx.services.logger.warn(`Todo marker write failed ${remoteId}:`, err?.message)
+    }
   }
 
   /** 映射中存在但本地已删除的记录 → 删除远端对象 */
@@ -505,8 +801,13 @@ class OutlookSyncService {
         this.deleteMap(type, mapping.local_id)
         result.deleted++
       } catch (err: any) {
-        result.failed++
-        this.pushError(result, `删除${type === 'event' ? '事件' : '待办'} ${mapping.local_id}: ${err?.message || err}`)
+        // 远端已被用户手工删除：映射同样失效，直接清掉
+        if (err?.status === 404) {
+          this.deleteMap(type, mapping.local_id)
+        } else {
+          result.failed++
+          this.pushError(result, `删除${type === 'event' ? '事件' : '待办'} ${mapping.local_id}: ${err?.message || err}`)
+        }
       }
       await sleep(150)
     }
@@ -524,24 +825,63 @@ class OutlookSyncService {
     return `${title}\u0000${dt.slice(0, 10)}\u0000${dt.slice(11, 19) || '00:00:00'}`
   }
 
-  /** 分页拉取目标日历/列表的全部远端对象；事件带标记的进 byMarker，待办（无标记支持）全部进 byFuzzy 兜底 */
-  private async loadRemoteIndex(token: string, type: 'event' | 'todo'): Promise<RemoteIndex> {
+  /** 分页拉取目标日历的全部事件：带标记的进 byMarker，其余进 byFuzzy 兜底 */
+  private async loadEventIndex(token: string): Promise<RemoteIndex> {
     const idx: RemoteIndex = { objs: [], byMarker: new Map(), byFuzzy: new Map() }
-    let path: string | null = type === 'event'
-      // todoTask 无 singleValueExtendedProperties 导航属性（$expand 会报 400），不能带 expand
-      ? `/me/calendars/${this.calendarId}/events?$select=id,subject,start,categories&$expand=singleValueExtendedProperties($filter=id eq '${LOCAL_ID_PROP}')`
-      : `/me/todo/lists/${this.todoListId}/tasks`
+    let path: string | null =
+      `/me/calendars/${this.calendarId}/events?$select=id,subject,start,categories&$expand=singleValueExtendedProperties($filter=id eq '${LOCAL_ID_PROP}')`
     while (path) {
       const json = await this.graph(token, 'GET', path)
       for (const item of json?.value || []) {
-        // 事件仅纳入本插件推送过的（带 WorkAvatar 分类），避免误伤日历里手工创建的日程
-        if (type === 'event' && !(item.categories || []).includes(TARGET_NAME)) continue
-        const title = type === 'event' ? item.subject || '' : item.title || ''
-        const dt = type === 'event' ? item.start?.dateTime : item.dueDateTime?.dateTime
+        // 仅纳入本插件推送过的（带 WorkAvatar 分类），避免误伤日历里手工创建的日程
+        if (!(item.categories || []).includes(TARGET_NAME)) continue
+        const title = item.subject || ''
         const obj: RemoteObj = {
           id: item.id,
           localId: item.singleValueExtendedProperties?.[0]?.value || undefined,
-          key: this.remoteKey(title, dt),
+          key: this.remoteKey(title, item.start?.dateTime),
+          used: false,
+        }
+        idx.objs.push(obj)
+        if (obj.localId) this.pushTo(idx.byMarker, obj.localId, obj)
+        else this.pushTo(idx.byFuzzy, obj.key, obj)
+      }
+      const next: string | undefined = json?.['@odata.nextLink']
+      path = next?.startsWith(GRAPH_BASE) ? next.slice(GRAPH_BASE.length) : null
+    }
+    return idx
+  }
+
+  /** 分页拉取目标待办列表；优先带 extensions 以便按本地 id 精确回收，租户不支持时回退普通列表 */
+  private async loadTodoIndex(token: string): Promise<RemoteIndex> {
+    try {
+      return await this.loadTodoPages(token, true)
+    } catch (err: any) {
+      if (err?.status !== 400) throw err
+      this.ctx.services.logger.warn('Todo list $expand=extensions unsupported, fallback to plain list')
+      return await this.loadTodoPages(token, false)
+    }
+  }
+
+  private async loadTodoPages(token: string, withExtensions: boolean): Promise<RemoteIndex> {
+    const idx: RemoteIndex = { objs: [], byMarker: new Map(), byFuzzy: new Map(), withExtensions }
+    let path: string | null = withExtensions
+      ? `/me/todo/lists/${this.todoListId}/tasks?$expand=extensions`
+      // 显式 select 保留 recurrence/status/due：识别旧数据、完成历史与撤销完成都依赖这些字段
+      : `/me/todo/lists/${this.todoListId}/tasks?$select=id,title,status,dueDateTime,recurrence`
+    while (path) {
+      const json = await this.graph(token, 'GET', path)
+      for (const item of json?.value || []) {
+        const localId = (item.extensions || []).find((e: any) => e.extensionName === TODO_EXT_NAME)?.localId
+        const obj: RemoteObj = {
+          id: item.id,
+          localId,
+          key: this.remoteKey(item.title || '', item.dueDateTime?.dateTime),
+          title: item.title || '',
+          hasRecurrence: !!item.recurrence,
+          status: item.status,
+          dueDateTime: item.dueDateTime?.dateTime,
+          dueTimeZone: item.dueDateTime?.timeZone,
           used: false,
         }
         idx.objs.push(obj)
@@ -570,7 +910,7 @@ class OutlookSyncService {
     return pick(idx.byMarker.get(localId))?.id ?? pick(fuzzyKey ? idx.byFuzzy.get(fuzzyKey) : undefined)?.id
   }
 
-  /** 映射未空时按标记精确找回单个远端事件（To Do 不支持服务端过滤，走 loadRemoteIndex 客户端匹配） */
+  /** 映射未空时按标记精确找回单个远端事件（To Do 不支持服务端过滤，走 loadTodoIndex 客户端匹配） */
   private async findEventByLocalId(token: string, localId: string): Promise<string | null> {
     const escaped = localId.replace(/'/g, "''")
     const filter = encodeURIComponent(`singleValueExtendedProperties/any(ep: ep/id eq '${LOCAL_ID_PROP}' and ep/value eq '${escaped}')`)
@@ -578,19 +918,44 @@ class OutlookSyncService {
     return json?.value?.[0]?.id ?? null
   }
 
-  /** 回收后清理远端残留：未匹配到本地对象的副本（重复项 / 本地已删除） */
-  private async pruneRemote(token: string, type: 'event' | 'todo', idx: RemoteIndex, result: OutlookSyncResult): Promise<void> {
+  /** 回收后清理远端残留事件：未匹配到本地对象的副本（重复项 / 本地已删除） */
+  private async pruneEventRemote(token: string, idx: RemoteIndex, result: OutlookSyncResult): Promise<void> {
     for (const obj of idx.objs) {
       if (obj.used) continue
       try {
-        const path = type === 'event'
-          ? `/me/events/${obj.id}`
-          : `/me/todo/lists/${this.todoListId}/tasks/${obj.id}`
-        await this.graph(token, 'DELETE', path)
+        await this.graph(token, 'DELETE', `/me/events/${obj.id}`)
         result.deleted++
       } catch (err: any) {
         result.failed++
-        this.pushError(result, `清理远端${type === 'event' ? '事件' : '待办'}: ${err?.message || err}`)
+        this.pushError(result, `清理远端事件: ${err?.message || err}`)
+      }
+      await sleep(150)
+    }
+  }
+
+  /**
+   * 清理待办列表中的历史副本：只删「确定属于本插件」（开放扩展标记）或「与本地待办同名」
+   * 的未认领对象，避免误删用户手工添加到该列表的任务。映射指向的对象一律不清理。
+   */
+  private async pruneTodoRemote(
+    token: string,
+    idx: RemoteIndex,
+    claimed: Set<string>,
+    mappedRemoteIds: Set<string>,
+    localTitles: Set<string>,
+    result: OutlookSyncResult,
+  ): Promise<void> {
+    for (const obj of idx.objs) {
+      if (claimed.has(obj.id) || mappedRemoteIds.has(obj.id)) continue
+      // completed 是重复系列的完成历史，不是重复项
+      if (obj.status === 'completed') continue
+      if (!obj.localId && !localTitles.has(obj.title || '')) continue
+      try {
+        await this.deleteTodoRemote(token, obj.id)
+        result.deleted++
+      } catch (err: any) {
+        result.failed++
+        this.pushError(result, `清理远端待办: ${err?.message || err}`)
       }
       await sleep(150)
     }
@@ -602,12 +967,28 @@ class OutlookSyncService {
     return this.db.prepare('SELECT * FROM calendar_sync_map WHERE target = ? AND local_type = ?').all('outlook', type)
   }
 
-  private upsertMap(type: 'event' | 'todo', localId: string, remoteId: string, syncedUpdatedAt: number): void {
+  private upsertMap(
+    type: 'event' | 'todo',
+    localId: string,
+    remoteId: string,
+    syncedUpdatedAt: number,
+    syncedDue: number | null = null,
+    syncedRule: string | null = null,
+  ): void {
     this.db.prepare(
-      `INSERT INTO calendar_sync_map (target, local_type, local_id, remote_id, synced_updated_at, synced_at)
-       VALUES ('outlook', ?, ?, ?, ?, unixepoch())
-       ON CONFLICT(target, local_type, local_id) DO UPDATE SET remote_id = excluded.remote_id, synced_updated_at = excluded.synced_updated_at, synced_at = excluded.synced_at`
-    ).run(type, localId, remoteId, syncedUpdatedAt)
+      `INSERT INTO calendar_sync_map (target, local_type, local_id, remote_id, synced_updated_at, synced_due, synced_rule, synced_at)
+       VALUES ('outlook', ?, ?, ?, ?, ?, ?, unixepoch())
+       ON CONFLICT(target, local_type, local_id) DO UPDATE SET remote_id = excluded.remote_id, synced_updated_at = excluded.synced_updated_at,
+         synced_due = excluded.synced_due, synced_rule = excluded.synced_rule, synced_at = excluded.synced_at`
+    ).run(type, localId, remoteId, syncedUpdatedAt, syncedDue, syncedRule)
+  }
+
+  /** 记录待办「已推送到的本地快照」：更新用于判变更，due/rule 用于判定完成推进、撤销与规则变更 */
+  private saveTodoMap(todo: CalendarTodo, remoteId: string): void {
+    this.upsertMap(
+      'todo', todo.id, remoteId, todo.updated_at,
+      todo.due_at, todo.recurrence_rule ? this.todoRuleKey(todo.recurrence_rule) : null,
+    )
   }
 
   private deleteMap(type: 'event' | 'todo', localId: string): void {
@@ -650,8 +1031,9 @@ class OutlookSyncService {
   /**
    * 本地 RecurrenceRule → Graph patternedRecurrence。
    * bysetpos / rdates / 多值 bymonthday、实例级 overrides（单实例取消/修改）不精细同步，仅同步主规则。
+   * remainingCount：重复待办按「剩余次数」下发（云端会随完成递减），事件传 undefined 用总次数。
    */
-  private ruleToGraphRecurrence(rule: RecurrenceRule, startSec: number, tzid: string): any {
+  private ruleToGraphRecurrence(rule: RecurrenceRule, startSec: number, tzid: string, remainingCount?: number): any {
     const tz = tzid || this.systemTz
     const startDate = this.toGraphDateTime(startSec, tz, true).dateTime
     const dayOfMonth = Number(startDate.slice(8, 10))
@@ -683,8 +1065,9 @@ class OutlookSyncService {
     }
 
     let range: any
-    if (rule.count) {
-      range = { type: 'numbered', startDate, numberOfOccurrences: rule.count }
+    const count = remainingCount ?? rule.count
+    if (count) {
+      range = { type: 'numbered', startDate, numberOfOccurrences: count }
     } else if (rule.until) {
       // rule.until 为 unix 秒，直接传给 toGraphDateTime（其内部 ×1000 转毫秒）；
       // 误乘 1000 会得到 ~1e15 的“秒” → endDate 落到公元数万年 → Graph 报 ErrorRecurrenceEndDateTooBig
@@ -730,7 +1113,11 @@ class OutlookSyncService {
     return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10)
   }
 
-  private todoToGraphBody(todo: CalendarTodo, isCreate = true): any {
+  /**
+   * 本地待办 → Graph todoTask（新建 / 非重复待办的整条更新）。
+   * 重复待办新建时同样带 recurrence；后续更新走 pushTodoRecurringChange，绝不 PATCH dueDateTime。
+   */
+  private todoToGraphBody(todo: CalendarTodo): any {
     const tz = todo.tzid
     const importance = todo.priority === 'high' ? 'high' : todo.priority === 'low' ? 'low' : 'normal'
     const status = todo.status === 'completed' ? 'completed' : todo.status === 'in_progress' ? 'inProgress' : 'notStarted'
@@ -757,14 +1144,8 @@ class OutlookSyncService {
         body.reminderDateTime = this.toGraphDateTime(remindAt, tz)
       }
     }
-
-    // 仅在创建时发送 recurrence：To-Do 服务端无法可靠地 PATCH 更新重复规则
-    //（带 range 报 Edm.Date 转换错误，空 range 报 ErrorRecurrenceEndDateTooBig），
-    // 更新时省略 recurrence 以免整条 PATCH 失败，重复规则沿用远端已有值
-    if (isCreate && todo.recurrence_rule && todo.due_at) {
-      const recurrence = this.ruleToGraphRecurrence(todo.recurrence_rule, todo.due_at, tz)
-      if (recurrence) body.recurrence = recurrence
-    }
+    const recurrence = this.todoRecurrence(todo)
+    if (recurrence) body.recurrence = recurrence
     return body
   }
 }

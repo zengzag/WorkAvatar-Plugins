@@ -97,10 +97,18 @@ export function ensureCalendarTables(db: PluginDatabase): void {
       remote_id TEXT NOT NULL,
       -- 最近一次成功同步的本地 updated_at，用于增量判断
       synced_updated_at INTEGER NOT NULL,
+      -- 最近一次推送时的本地到期时间（秒），用于区分「完成推进」与「改期 / 撤销完成」
+      synced_due INTEGER,
+      -- 最近一次推送时的重复规则指纹，用于识别规则变更
+      synced_rule TEXT,
       synced_at INTEGER NOT NULL DEFAULT (unixepoch())
     );
     CREATE UNIQUE INDEX IF NOT EXISTS idx_calendar_sync_map_unique ON calendar_sync_map(target, local_type, local_id);
   `)
+  // 存量库补列（新库已含；旧库由同步服务启动时 ALTER，这里保证仅用日历服务时也能读写）
+  const cols = new Set((db.prepare('PRAGMA table_info(calendar_sync_map)').all() as any[]).map(c => c.name))
+  if (!cols.has('synced_due')) db.exec('ALTER TABLE calendar_sync_map ADD COLUMN synced_due INTEGER')
+  if (!cols.has('synced_rule')) db.exec('ALTER TABLE calendar_sync_map ADD COLUMN synced_rule TEXT')
 }
 
 const SETTINGS_KEY = 'calendar_settings'
