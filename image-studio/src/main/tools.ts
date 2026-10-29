@@ -4,6 +4,7 @@
  */
 import fs from 'fs'
 import path from 'path'
+import { nativeImage } from 'electron'
 import type { PluginContext } from '@workavatar/plugin-sdk'
 import {
   ASPECTS,
@@ -20,6 +21,74 @@ import { generateOnce } from './generator'
 
 const ASPECT_VALUES = new Set<string>(ASPECTS.map((a) => a.value))
 const PURPOSE_VALUES = new Set<string>(PURPOSE_IDS)
+
+const IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp'])
+/** 请求体只接受这些格式，其余（gif/bmp 等）解码后转 JPEG */
+const PASSTHROUGH_EXTS = new Set(['.png', '.jpg', '.jpeg', '.webp'])
+const MAX_REF_EDGE = 2048
+const MAX_REF_BYTES = 30 * 1024 * 1024
+
+/** 本地图片转 data URL：长边超 2048 时降采样，减小请求体 */
+function fileToDataUrl(filePath: string): string {
+  if (fs.statSync(filePath).size > MAX_REF_BYTES) throw new Error('too-large')
+  const ext = path.extname(filePath).toLowerCase()
+  const native = nativeImage.createFromPath(filePath)
+  const decodable = !native.isEmpty()
+  const size = decodable ? native.getSize() : { width: 0, height: 0 }
+  const longest = Math.max(size.width, size.height)
+  if (decodable && (longest > MAX_REF_EDGE || !PASSTHROUGH_EXTS.has(ext))) {
+    const image =
+      longest > MAX_REF_EDGE
+        ? native.resize({
+            width: Math.round((size.width * MAX_REF_EDGE) / longest),
+            height: Math.round((size.height * MAX_REF_EDGE) / longest),
+            quality: 'good',
+          })
+        : native
+    return `data:image/jpeg;base64,${image.toJPEG(90).toString('base64')}`
+  }
+  if (!PASSTHROUGH_EXTS.has(ext)) throw new Error('undecodable')
+  const mime = /\.jpe?g$/i.test(filePath) ? 'image/jpeg' : ext === '.webp' ? 'image/webp' : 'image/png'
+  return `data:${mime};base64,${fs.readFileSync(filePath).toString('base64')}`
+}
+
+/** 参考图归一化：URL / data URL 原样保留，本地绝对路径读盘转 data URL，无法解析直接报错 */
+function normalizeReferences(
+  raw: unknown,
+  max: number,
+  t: (k: string, p?: Record<string, string | number>) => string
+): { refs: string[] } | { error: string } {
+  const refs: string[] = []
+  for (const item of Array.isArray(raw) ? raw : []) {
+    if (typeof item !== 'string') continue
+    const ref = item.trim()
+    if (!ref) continue
+    if (/^https?:\/\//i.test(ref)) {
+      refs.push(ref)
+      continue
+    }
+    if (ref.startsWith('data:')) {
+      if (!/^data:image\/[\w.+-]+(;[^,]*)?,/i.test(ref)) return { error: t('errors.referenceInvalid', { path: 'data URL' }) }
+      refs.push(ref)
+      continue
+    }
+    if (!path.isAbsolute(ref)) return { error: t('errors.referenceNotFound', { path: ref }) }
+    if (!IMAGE_EXTS.has(path.extname(ref).toLowerCase())) return { error: t('errors.referenceInvalid', { path: ref }) }
+    if (!fs.existsSync(ref) || !fs.statSync(ref).isFile()) return { error: t('errors.referenceNotFound', { path: ref }) }
+    try {
+      refs.push(fileToDataUrl(ref))
+    } catch (err) {
+      return {
+        error:
+          err instanceof Error && err.message === 'too-large'
+            ? t('errors.fileTooLarge')
+            : t('errors.referenceInvalid', { path: ref }),
+      }
+    }
+  }
+  if (refs.length > max) return { error: t('errors.referenceLimit', { count: refs.length, max }) }
+  return { refs }
+}
 
 export function registerImageTool(ctx: PluginContext): void {
   const t = (key: string, params?: Record<string, string | number>) => ctx.services.i18n.t(key, params)
@@ -42,7 +111,7 @@ export function registerImageTool(ctx: PluginContext): void {
 - title / subtitle：需要模型在图中渲染的文字（可选，易出现错字）
 - no_text：是否禁止图中出现任何文字。默认 false；只有需要后续人工重排文字（可编辑底稿、PPT 整页版式）时才设为 true，成品科研图应带受控短标签
 - transparent：是否输出透明背景（需模型支持）
-- reference_images：参考图数组，支持公网 URL 或 data:image/...;base64,...（图生图/多图融合）
+- reference_images：参考图数组，支持本地绝对路径、公网 URL 或 data:image/...;base64,...（图生图/多图融合）。上一次生成返回的图片路径可直接填入，用于在已有图上继续修改；本地文件由工具读取并转 base64（超过 2048 长边自动降采样）
 
 返回每张图片的本地绝对路径。若用户未配置 API Key 会返回错误，此时提示用户打开「生图工作室 → 设置」配置。`,
       parameters: {
@@ -67,7 +136,7 @@ export function registerImageTool(ctx: PluginContext): void {
           reference_images: {
             type: 'array',
             items: { type: 'string' },
-            description: '参考图 URL 或 data URL 数组',
+            description: '参考图本地绝对路径、URL 或 data URL 数组',
           },
         },
         required: ['prompt'],
@@ -88,6 +157,8 @@ export function registerImageTool(ctx: PluginContext): void {
             : defaults.aspect
         const title = typeof args.title === 'string' ? args.title : ''
         const subtitle = typeof args.subtitle === 'string' ? args.subtitle : ''
+        const references = normalizeReferences(args.reference_images, spec.maxRefImages, t)
+        if ('error' in references) return { success: false, error: references.error }
 
         const request: GenerateRequest = {
           provider,
@@ -105,9 +176,7 @@ export function registerImageTool(ctx: PluginContext): void {
           optimizeMode: defaults.optimizeMode,
           sequential: false,
           maxImages: 1,
-          referenceImages: Array.isArray(args.reference_images)
-            ? (args.reference_images as unknown[]).filter((x): x is string => typeof x === 'string')
-            : [],
+          referenceImages: references.refs,
           purpose,
           styleKey: '',
           palette: 'auto',

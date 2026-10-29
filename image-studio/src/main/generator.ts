@@ -139,7 +139,9 @@ export function startGeneration(req: GenerateRequest, emit: Emit, t: Translate):
         : 1
       : Math.min(spec.maxOutputs, Math.max(1, Math.round(req.count || 1)))
 
-  const id = jobId()
+  // 渲染端传入的任务 ID 优先使用：并行任务下事件与本地骨架可确定性对应
+  const requestedId = typeof req.clientJobId === 'string' ? req.clientJobId.trim() : ''
+  const id = requestedId && !jobs.has(requestedId) ? requestedId : jobId()
   const job: Job = {
     id,
     provider: req.provider,

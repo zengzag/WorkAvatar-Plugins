@@ -158,7 +158,10 @@ export interface StudioState {
   total: number
   usageBytes: number
   dataDir: string
-  job: JobView | null
+  /** 并行运行中的任务（LLM 工具调用可能与面板生成同时进行） */
+  jobs: JobView[]
+  /** 生成面板自己发起的任务，用于展示进度与取消 */
+  activeJobId: string | null
   notice: Notice | null
   previewId: string | null
   filter: 'all' | 'favorite'
@@ -242,7 +245,8 @@ let state: StudioState = {
   total: 0,
   usageBytes: 0,
   dataDir: '',
-  job: null,
+  jobs: [],
+  activeJobId: null,
   notice: null,
   previewId: null,
   filter: 'all',
@@ -343,21 +347,26 @@ function bindEvents(): void {
 }
 
 function handleProgress(progress: JobProgress): void {
-  const current = state.job
-  // requesting 阶段可能先于 invoke 返回，jobId 为空时直接接纳
-  if (current && current.jobId && current.jobId !== progress.jobId) return
+  const existing = state.jobs.find((item) => item.jobId === progress.jobId)
+  const terminal = progress.stage === 'done' || progress.stage === 'error' || progress.stage === 'canceled'
 
-  const startedAt = current && current.jobId === progress.jobId ? current.startedAt : Date.now() - progress.elapsedMs
-  const job: JobView = {
-    jobId: progress.jobId,
-    stage: progress.stage,
-    total: progress.total,
-    completed: progress.completed,
-    elapsedMs: progress.elapsedMs,
-    startedAt,
-    provider: progress.provider,
-    model: progress.model,
-    error: progress.error,
+  // 每个 jobId 独立记录，多个任务并行时互不覆盖
+  let jobs = state.jobs
+  if (terminal) {
+    jobs = jobs.filter((item) => item.jobId !== progress.jobId)
+  } else {
+    const view: JobView = {
+      jobId: progress.jobId,
+      stage: progress.stage,
+      total: progress.total,
+      completed: progress.completed,
+      elapsedMs: progress.elapsedMs,
+      startedAt: existing?.startedAt ?? Date.now() - progress.elapsedMs,
+      provider: progress.provider,
+      model: progress.model,
+      error: progress.error,
+    }
+    jobs = existing ? jobs.map((item) => (item.jobId === view.jobId ? view : item)) : [...jobs, view]
   }
 
   const incoming: GeneratedImage[] = progress.image
@@ -380,18 +389,19 @@ function handleProgress(progress: JobProgress): void {
     notice = { type: 'warning', message: progress.error }
   } else if (progress.stage === 'canceled') {
     notice = { type: 'warning', message: t('canceled') }
-  } else if (progress.stage === 'requesting') {
+  } else if (progress.stage === 'requesting' && progress.jobId === state.activeJobId) {
     notice = null
   }
 
   setState({
-    job,
+    jobs,
     images,
     notice,
     total: Math.max(state.total, images.length),
+    activeJobId: terminal && state.activeJobId === progress.jobId ? null : state.activeJobId,
   })
 
-  if (progress.stage === 'done') {
+  if (terminal) {
     void refreshImages()
   }
 }
@@ -415,11 +425,16 @@ export async function copyText(text: string): Promise<boolean> {
   return false
 }
 
+/** 并行任务会同时触发刷新：只采纳最后一次请求的结果，避免旧快照覆盖新作品 */
+let refreshSeq = 0
+
 export async function refreshImages(): Promise<void> {
+  const seq = ++refreshSeq
   try {
     const library = await invoke<{ images: GeneratedImage[]; total: number; usageBytes: number; dataDir: string }>(
       'list-images'
     )
+    if (seq !== refreshSeq) return
     setState({
       images: library.images,
       total: library.total,
@@ -579,45 +594,62 @@ export async function optimizePrompt(payload: {
 
 // ====== 生成 ======
 
+/** 渲染端先生成任务 ID 交给主进程，保证并行任务的事件与本地面板状态确定性对应 */
+function newJobId(): string {
+  return `job_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+}
+
 export async function generate(): Promise<{ ok: boolean; error?: string }> {
   const request = buildRequest()
   if (!request.prompt) return { ok: false, error: t('errors.emptyPrompt') }
 
   const total = request.provider === 'volcengine' ? (request.sequential ? request.maxImages : 1) : request.count
+  const clientJobId = newJobId()
   setState({
     notice: null,
-    job: {
-      jobId: '',
-      stage: 'queued',
-      total,
-      completed: 0,
-      elapsedMs: 0,
-      startedAt: Date.now(),
-      provider: request.provider,
-      model: request.model,
-    },
+    activeJobId: clientJobId,
+    jobs: [
+      ...state.jobs,
+      {
+        jobId: clientJobId,
+        stage: 'queued',
+        total,
+        completed: 0,
+        elapsedMs: 0,
+        startedAt: Date.now(),
+        provider: request.provider,
+        model: request.model,
+      },
+    ],
   })
 
   try {
-    const res = await invoke<{ jobId?: string; error?: string }>('generate', request)
+    const res = await invoke<{ jobId?: string; error?: string }>('generate', { ...request, clientJobId })
     if (res?.error) {
-      setState({ job: null, notice: { type: 'error', message: res.error } })
+      setState({
+        jobs: state.jobs.filter((item) => item.jobId !== clientJobId),
+        activeJobId: null,
+        notice: { type: 'error', message: res.error },
+      })
       return { ok: false, error: res.error }
     }
-    setState((prev) => (prev.job ? { job: { ...prev.job, jobId: res?.jobId || prev.job.jobId } } : {}))
     return { ok: true }
   } catch (err: any) {
     const message = err?.message || t('errors.requestFailed')
-    setState({ job: null, notice: { type: 'error', message } })
+    setState({
+      jobs: state.jobs.filter((item) => item.jobId !== clientJobId),
+      activeJobId: null,
+      notice: { type: 'error', message },
+    })
     return { ok: false, error: message }
   }
 }
 
 export async function cancelJob(): Promise<void> {
-  const job = state.job
-  if (!job?.jobId) return
+  const jobId = state.activeJobId
+  if (!jobId) return
   try {
-    await invoke('cancel', job.jobId)
+    await invoke('cancel', jobId)
   } catch {
     // 取消失败时保持当前状态，等待任务自然收敛
   }

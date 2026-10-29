@@ -106,7 +106,6 @@
   "noKeyDesc": "配置火山方舟、阿里云百炼或 OpenAI 的 API Key 后即可开始生成。",
   "goSettings": "去配置",
   "pptHint": "建议 16:9 + 极简 + 右侧留白，导出后直接在 PPT 里加标题",
-  "submitHint": "生成结果自动保存到本地作品库",
   "purposeAll": "全部场景",
   "emptyTitle": "还没有作品",
   "emptyDesc": "在左侧选择用途并写下画面描述，生成的图片会出现在这里。",
@@ -346,7 +345,9 @@
     "generateFailed": "生成失败",
     "optimizeFailed": "提示词优化失败，请检查优化模型配置后重试",
     "optimizeUnavailable": "当前宿主未开放 LLM 能力，无法优化提示词",
-    "referenceLimit": "参考图数量超出限制",
+    "referenceLimit": "参考图数量超出限制（{{count}}/{{max}}）",
+    "referenceNotFound": "参考图不存在：{{path}}",
+    "referenceInvalid": "参考图无法解析：{{path}}",
     "fileTooLarge": "图片体积过大，请压缩后再上传"
   }
 }

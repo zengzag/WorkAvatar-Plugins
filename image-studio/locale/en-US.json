@@ -106,7 +106,6 @@
   "noKeyDesc": "Add a Volcengine Ark, Alibaba Cloud Bailian or OpenAI API key to start generating.",
   "goSettings": "Configure",
   "pptHint": "Use 16:9 with minimal density and right-side space, then add your title in PowerPoint",
-  "submitHint": "Results are saved to your local library automatically",
   "purposeAll": "All purposes",
   "emptyTitle": "No images yet",
   "emptyDesc": "Pick a purpose on the left and describe the scene — generated images will appear here.",
@@ -346,7 +345,9 @@
     "generateFailed": "Generation failed",
     "optimizeFailed": "Prompt optimization failed, please check the optimization model configuration",
     "optimizeUnavailable": "The host does not expose LLM capability, cannot optimize prompts",
-    "referenceLimit": "Too many reference images",
+    "referenceLimit": "Too many reference images ({{count}}/{{max}})",
+    "referenceNotFound": "Reference image not found: {{path}}",
+    "referenceInvalid": "Unsupported reference image: {{path}}",
     "fileTooLarge": "Image is too large, please compress it first"
   }
 }

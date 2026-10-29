@@ -522,6 +522,8 @@ export interface GenerateRequest {
   textLanguage: TextLanguage
   transparent: boolean
   quality: QualityTier
+  /** 渲染端预先生成的任务 ID（仅用于并行任务的进度关联，不落库） */
+  clientJobId?: string
 }
 
 export interface GeneratedImage {

@@ -1,0 +1,77 @@
+{
+  "canvas": {
+    "width": 1280,
+    "height": 720,
+    "margin": 40,
+    "gutter": 12,
+    "baseline": 8,
+    "columns": 12,
+    "content_top": 94,
+    "content_bottom": 662,
+    "conclusion_height": 40
+  },
+  "color": {
+    "neutral_ratio": [0.60, 0.75],
+    "primary_ratio": [0.20, 0.35],
+    "accent_ratio": [0.02, 0.05],
+    "red_spans_max": 3,
+    "hues_max": 2,
+    "dark_page_ratio": [0.15, 0.25],
+    "dark_page_ratio_light": [0.05, 0.25],
+    "gradient_stops_max": 2,
+    "gradient_dl_max": 18,
+    "contrast_body_min": 7.0,
+    "contrast_secondary_min": 4.5
+  },
+  "type": {
+    "families_max": 2,
+    "weights_max": 2,
+    "body_default": 14.5,
+    "body_min": 12,
+    "title_h1": 30,
+    "display": 82,
+    "scale_ratio": [1.25, 1.33],
+    "line_chars": [18, 34],
+    "block_lines_max": 3
+  },
+  "density": {
+    "coverage": [0.55, 0.75],
+    "coverage_max": 0.80,
+    "whitespace_min": 0.25,
+    "modules": [2, 4],
+    "modules_max": 4,
+    "bullets_per_module_max": 6,
+    "text_blocks": [4, 7]
+  },
+  "image": {
+    "count": [1, 3],
+    "count_max_catalogue": 6,
+    "coverage": [0.20, 0.40],
+    "border_px": 1,
+    "radius_max": 3,
+    "caption_min": 10
+  },
+  "zone": {
+    "tones": ["ice", "mist", "cream", "lavender"],
+    "per_page_max": 3,
+    "tint_max": 0.18,
+    "tones_max": 2
+  },
+  "shape": {
+    "border_widths": [0.75, 1, 1.5],
+    "radii": [0, 2, 3, 21],
+    "shadow": false,
+    "decoration_ratio_max": 0.10
+  },
+  "audit": {
+    "modules_max": 4,
+    "red_spans_max": 3,
+    "bullets_max": 6,
+    "images_max": 4,
+    "images_max_catalogue": 6,
+    "zones_max": 3,
+    "zone_tones_max": 2,
+    "dark_page_ratio": [0.15, 0.25],
+    "dark_page_ratio_light": [0.05, 0.25]
+  }
+}

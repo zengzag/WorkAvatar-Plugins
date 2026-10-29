@@ -35,14 +35,15 @@ import {
 } from '../store'
 import { Elapsed } from '../useTick'
 
-const ACTIVE_STAGES = new Set(['queued', 'requesting', 'downloading', 'saving'])
 const EXAMPLE_KEYS = ['portrait', 'product', 'poster', 'scenery']
 
 export function Gallery() {
   const state = useStudio()
   const { message, modal } = App.useApp()
-  const job = state.job
-  const active = Boolean(job && ACTIVE_STAGES.has(job.stage))
+  // 并行任务各自占位骨架，避免相互覆盖导致有任务不显示
+  const jobs = state.jobs
+  const active = jobs.length > 0
+  const leadJob = jobs.find((item) => item.jobId === state.activeJobId) ?? jobs[0]
 
   const filtered = useMemo(() => {
     const keyword = state.search.trim().toLowerCase()
@@ -69,7 +70,7 @@ export function Gallery() {
     return sorted
   }, [state.images, state.filter, state.purposeFilter, state.search, state.sort])
 
-  const skeletonCount = active && job ? Math.max(1, job.total - job.completed) : 0
+  const skeletonCount = jobs.reduce((sum, job) => sum + Math.max(1, job.total - job.completed), 0)
   const showEmpty = state.images.length === 0 && !active
 
   const handleDelete = (id: string) => {
@@ -282,12 +283,12 @@ export function Gallery() {
               <div className="is-skeleton-box">
                 <ClockCircleOutlined />
                 <span>
-                  {index === 0 && job
-                    ? t('generatingStage', { stage: t(`stage.${job.stage}`) })
+                  {index === 0 && leadJob
+                    ? t('generatingStage', { stage: t(`stage.${leadJob.stage}`) })
                     : t('generating')}
                 </span>
-                {index === 0 && job && (
-                  <Elapsed startedAt={job.startedAt} className="is-skeleton-elapsed" />
+                {index === 0 && leadJob && (
+                  <Elapsed startedAt={leadJob.startedAt} className="is-skeleton-elapsed" />
                 )}
               </div>
             </div>

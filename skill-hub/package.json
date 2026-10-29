@@ -1,0 +1,19 @@
+{
+  "name": "workavatar-plugin-skill-hub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WorkAvatar 技能合集插件（纯后台）：仅提供 <插件根>/skills/ 下的技能，无渲染端与 IPC",
+  "type": "module",
+  "scripts": {
+    "build": "node build-plugin.mjs",
+    "build:zip": "node build-plugin.mjs --zip",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {},
+  "nativeDependencies": {},
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "esbuild": "^0.28.0",
+    "typescript": "^7.0.2"
+  }
+}

@@ -123,7 +123,9 @@ export function ComposerPanel() {
   const spec = getModelSpec(composer.provider, composer.model)
   const providerPublic = settings?.providers[composer.provider]
   const hasKey = Boolean(providerPublic?.hasKey)
-  const job = state.job
+  const job = state.activeJobId
+    ? state.jobs.find((item) => item.jobId === state.activeJobId) ?? null
+    : null
   const active = Boolean(job && ACTIVE_STAGES.has(job.stage))
   const showNoKey = state.ready && !hasKey
 
@@ -993,9 +995,9 @@ export function ComposerPanel() {
           </Button>
         )}
 
-        <div className="is-footer-hint">
-          {composer.purpose === 'ppt-slide' || composer.purpose === 'ppt-cover' ? t('pptHint') : t('submitHint')}
-        </div>
+        {(composer.purpose === 'ppt-slide' || composer.purpose === 'ppt-cover') && (
+          <div className="is-footer-hint">{t('pptHint')}</div>
+        )}
       </div>
     </aside>
   )
