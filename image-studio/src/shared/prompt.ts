@@ -17,17 +17,17 @@ const PURPOSE_SUFFIX: Record<PurposeId, string> = {
   'ppt-cover':
     'modern presentation cover artwork, bold abstract geometric shapes, cinematic gradient lighting, strong focal point, generous clean space for a title, premium corporate aesthetic',
   'sci-schematic':
-    'scientific schematic illustration, flat vector diagram style, clean uniform line weights, simplified geometry, restrained academic colors, crisp shapes, clear visual hierarchy, isolated on a plain white background',
+    'scientific schematic illustration, flat vector diagram style, clean uniform line weights, concrete scientific objects with short readable labels, restrained academic colors, crisp shapes, clear visual hierarchy, isolated on a plain white background, no empty placeholder boxes or frame-only layout',
   'paper-figure':
-    'graphical abstract illustration for a research paper, clean scientific vector style, minimal flat shapes, conceptual metaphor, cohesive restrained palette, plain white background, high clarity',
+    'labeled graphical abstract for a research paper, clean scientific vector style, concrete scientific objects with short labels and clear flow arrows, cohesive restrained palette, plain white background, high clarity, no empty placeholder boxes or frame-only layout',
   chart:
     'clean data visualization illustration, flat chart-inspired graphics with bars, lines and nodes, organized grid layout, generous spacing, professional analytical aesthetic, plain white background',
   infographic:
     'modern infographic illustration, structured layout with connected blocks and icons, clear grouping, soft corporate palette, generous spacing',
   architecture:
-    'clean system architecture diagram, modular component blocks connected by directional arrows, layered hierarchy, aligned grid layout, flat vector style with uniform line weights, professional technical aesthetic, plain white background',
+    'clean system architecture diagram, labeled modular component blocks connected by directional arrows, layered hierarchy, aligned grid layout, flat vector style with uniform line weights, professional technical aesthetic, plain white background, no empty placeholder boxes',
   flowchart:
-    'clean process flowchart diagram, sequential steps connected by arrows, rounded process nodes and decision diamonds, consistent spacing, clear left-to-right flow hierarchy, flat vector style, plain white background',
+    'clean process flowchart diagram, labeled sequential steps connected by arrows, rounded process nodes and decision diamonds, consistent spacing, clear left-to-right flow hierarchy, flat vector style, plain white background, no empty placeholder boxes',
   poster:
     'academic conference poster background artwork, scientific visual metaphor, restrained professional palette, large calm areas reserved for text',
   free: '',

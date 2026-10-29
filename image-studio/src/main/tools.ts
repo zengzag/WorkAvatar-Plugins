@@ -35,12 +35,12 @@ export function registerImageTool(ctx: PluginContext): void {
 所用服务商与模型由用户在「生图工作室 → 设置 → 生成偏好 → 生图工具模型」中配置，无需在参数中指定。
 
 参数：
-- prompt（必填）：画面描述。建议只描述主体与内容，版式/风格/留白交给 purpose 等参数控制
+- prompt（必填）：画面描述。普通图片可只描述主体与内容，把版式/风格/留白交给 purpose 等参数控制；科研图与架构图建议写清分区、箭头方向和受控标签，直接产出完整图
 - purpose：用途预设，决定默认比例与画面风格。可选 ppt-slide（PPT 配图）、ppt-cover（PPT 封面）、sci-schematic（科研示意图）、paper-figure（论文插图）、chart（数据图表）、infographic（信息图）、architecture（架构图）、flowchart（流程图）、poster（学术海报）、free（自由创作）。默认取用户设置
 - aspect：画面比例，可选 ${ASPECTS.map((a) => a.value).join(' / ')}；不传则用用途预设（PPT 为 16:9）
 - size：自定义尺寸，如 1920x1080（优先级高于 aspect）
 - title / subtitle：需要模型在图中渲染的文字（可选，易出现错字）
-- no_text：是否禁止图中出现任何文字（科研配图推荐 true）
+- no_text：是否禁止图中出现任何文字。默认 false；只有需要后续人工重排文字（可编辑底稿、PPT 整页版式）时才设为 true，成品科研图应带受控短标签
 - transparent：是否输出透明背景（需模型支持）
 - reference_images：参考图数组，支持公网 URL 或 data:image/...;base64,...（图生图/多图融合）
 
@@ -62,7 +62,7 @@ export function registerImageTool(ctx: PluginContext): void {
           size: { type: 'string', description: '自定义尺寸，如 1920x1080' },
           title: { type: 'string', description: '图中渲染的主标题（可选）' },
           subtitle: { type: 'string', description: '图中渲染的副标题（可选）' },
-          no_text: { type: 'boolean', description: '禁止图中出现文字' },
+          no_text: { type: 'boolean', description: '禁止图中出现文字（仅用于后续人工重排的底稿）' },
           transparent: { type: 'boolean', description: '输出透明背景' },
           reference_images: {
             type: 'array',
