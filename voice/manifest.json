@@ -15,6 +15,7 @@
     "generate-minutes", "cancel-minutes",
     "get-settings", "set-settings",
     "get-audio-sources", "check-local-model", "select-directory",
+    "get-media-access", "request-mic-access", "open-privacy-settings",
     "realtime-start", "realtime-feed", "realtime-stop", "realtime-cancel",
     "subtitle-show", "subtitle-hide", "subtitle-toggle", "subtitle-get-visible"
   ],

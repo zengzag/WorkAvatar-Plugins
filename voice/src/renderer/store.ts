@@ -78,6 +78,15 @@ export interface RealtimeResultPayload {
   isFinal: boolean
 }
 
+/** macOS TCC 媒体权限状态（与 Electron getMediaAccessStatus 返回值一致） */
+export type MediaAccessStatus = 'not-determined' | 'granted' | 'denied' | 'restricted' | 'unknown'
+
+export interface MicAccessResult {
+  granted: boolean
+  status: MediaAccessStatus
+  error?: string
+}
+
 export const voice = {
   // 任务管理
   listTasks: () => invoke<VoiceTask[]>('list-tasks'),
@@ -129,6 +138,13 @@ export const voice = {
   getAudioSources: () => invoke<AudioSource[]>('get-audio-sources'),
   checkLocalModel: () => invoke<VoiceLocalModelStatus>('check-local-model'),
   selectDirectory: () => invoke<string | null>('select-directory'),
+
+  // 系统媒体权限（macOS）
+  getMediaAccess: () =>
+    invoke<{ microphone: MediaAccessStatus; screen: MediaAccessStatus }>('get-media-access'),
+  requestMicAccess: () => invoke<MicAccessResult>('request-mic-access'),
+  openPrivacySettings: (pane?: 'microphone' | 'screen') =>
+    invoke<{ success: boolean }>('open-privacy-settings', pane),
 
   // 实时识别
   realtimeStart: (params: { taskId: string; language?: string }) =>

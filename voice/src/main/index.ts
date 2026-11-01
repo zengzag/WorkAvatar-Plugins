@@ -3,7 +3,7 @@
  * - 数据完全自包含于插件分库（voice-service 保证建表）与宿主 dataDir/voice
  * - IPC 经 ctx.ipc.handle 注册（插件桥路由 plugin:voice:<channel>），广播经 ctx.ipc.broadcast 推送
  */
-import { desktopCapturer, dialog } from 'electron'
+import { desktopCapturer, dialog, shell, systemPreferences } from 'electron'
 import type { PluginContext } from '@workavatar/plugin-sdk'
 import VoiceService from './voice-service'
 import LocalSTTService from './local-stt'
@@ -155,6 +155,43 @@ function registerIpc(ctx: PluginContext): void {
       name: so.name,
       display_id: so.display_id,
     }))
+  })
+
+  // ==================== 系统媒体权限（macOS） ====================
+  // 渲染端无法直接把应用加入「隐私与安全性」列表，必须由主进程向 TCC 发起请求，
+  // macOS 才会弹出授权框并把 WorkAvatar 记录到对应权限列表。
+  ctx.ipc.handle('get-media-access', () => {
+    if (process.platform !== 'darwin') {
+      return { microphone: 'granted', screen: 'granted' }
+    }
+    return {
+      microphone: systemPreferences.getMediaAccessStatus('microphone'),
+      screen: systemPreferences.getMediaAccessStatus('screen'),
+    }
+  })
+
+  ctx.ipc.handle('request-mic-access', async () => {
+    if (process.platform !== 'darwin') {
+      return { granted: true, status: 'granted' }
+    }
+    const current = systemPreferences.getMediaAccessStatus('microphone')
+    if (current === 'granted') {
+      return { granted: true, status: current }
+    }
+    try {
+      // 首次调用会触发系统授权弹窗；已被拒绝时直接返回 false，需用户去系统设置手动开启
+      const granted = await systemPreferences.askForMediaAccess('microphone')
+      return { granted, status: systemPreferences.getMediaAccessStatus('microphone') }
+    } catch (err: any) {
+      ctx.services.logger.error('请求麦克风权限失败:', err?.message || err)
+      return { granted: false, status: current, error: String(err?.message || err) }
+    }
+  })
+
+  ctx.ipc.handle('open-privacy-settings', (pane?: unknown) => {
+    const anchor = pane === 'screen' ? 'Privacy_ScreenCapture' : 'Privacy_Microphone'
+    void shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${anchor}`)
+    return { success: true }
   })
 
   // ==================== 本地模型状态检查 ====================

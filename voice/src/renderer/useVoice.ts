@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { voice, type RealtimeResultPayload } from './store'
+import { voice, type RealtimeResultPayload, type MicAccessResult, type MediaAccessStatus } from './store'
 import type {
   VoiceTask,
   VoiceSettings,
@@ -252,6 +252,36 @@ export function useVoice() {
     }
   }, [])
 
+  // ==================== 系统媒体权限（macOS） ====================
+
+  const getMediaAccess = useCallback(async () => {
+    try {
+      return await voice.getMediaAccess()
+    } catch (err) {
+      console.error('Failed to get media access status:', err)
+      return { microphone: 'unknown' as MediaAccessStatus, screen: 'unknown' as MediaAccessStatus }
+    }
+  }, [])
+
+  /** 向 macOS 申请麦克风权限：首次调用会弹出系统授权框 */
+  const requestMicAccess = useCallback(async (): Promise<MicAccessResult> => {
+    try {
+      return await voice.requestMicAccess()
+    } catch (err) {
+      console.error('Failed to request microphone access:', err)
+      return { granted: false, status: 'unknown', error: String(err) }
+    }
+  }, [])
+
+  /** 打开「系统设置 → 隐私与安全性」对应面板 */
+  const openPrivacySettings = useCallback(async (pane?: 'microphone' | 'screen') => {
+    try {
+      await voice.openPrivacySettings(pane)
+    } catch (err) {
+      console.error('Failed to open privacy settings:', err)
+    }
+  }, [])
+
   const checkLocalModel = useCallback(async () => {
     try {
       const result = await voice.checkLocalModel()
@@ -382,6 +412,9 @@ export function useVoice() {
     cancelMinutes,
     loadAudioSources,
     checkLocalModel,
+    getMediaAccess,
+    requestMicAccess,
+    openPrivacySettings,
     realtimeStart,
     realtimeFeed,
     realtimeStop,

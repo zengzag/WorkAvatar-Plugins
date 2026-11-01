@@ -6,11 +6,12 @@ import {
 } from 'antd'
 import {
   CloudServerOutlined, DesktopOutlined, AudioOutlined, RobotOutlined,
-  CheckCircleOutlined, ExclamationCircleOutlined,
+  CheckCircleOutlined, ExclamationCircleOutlined, InfoCircleOutlined,
   DesktopOutlined as SubtitleIcon,
 } from '@ant-design/icons'
 import LLMSelector from './LLMSelector'
 import SettingsItem from './SettingsItem'
+import { voice, type MediaAccessStatus } from '../store'
 import type { VoiceSettings, VoiceLocalModelStatus } from '../types'
 
 const { Text } = Typography
@@ -32,6 +33,7 @@ const KMSVoiceSettings: React.FC<KMSVoiceSettingsProps> = ({
   const [modelStatus, setModelStatus] = useState<VoiceLocalModelStatus | null>(null)
   const [checking, setChecking] = useState(false)
   const [micDevices, setMicDevices] = useState<MediaDeviceInfo[]>([])
+  const [micPermission, setMicPermission] = useState<MediaAccessStatus>('unknown')
   const skipAutoSaveRef = useRef(true)
 
   useEffect(() => {
@@ -52,12 +54,14 @@ const KMSVoiceSettings: React.FC<KMSVoiceSettingsProps> = ({
     return () => clearTimeout(timer)
   }, [localSettings, onSaveSettings])
 
-  // 枚举可用麦克风设备
+  // 枚举可用麦克风设备 + 权限状态（两者结合才能区分「没授权」和「没插麦克风」）
   useEffect(() => {
     const enumerate = async () => {
       try {
         const devices = await navigator.mediaDevices.enumerateDevices()
         setMicDevices(devices.filter(d => d.kind === 'audioinput'))
+        const access = await voice.getMediaAccess()
+        setMicPermission(access.microphone)
       } catch (err) {
         console.error('Failed to enumerate mic devices:', err)
       }
@@ -243,9 +247,15 @@ const KMSVoiceSettings: React.FC<KMSVoiceSettingsProps> = ({
         />
         {micDevices.length === 0 && (
           <div>
-            <Text type="warning" style={{ fontSize: 12 }}>
-              <ExclamationCircleOutlined /> {t('voice.micDevicePermissionHint')}
-            </Text>
+            {micPermission === 'granted' ? (
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                <InfoCircleOutlined /> {t('voice.micDeviceMissingHint')}
+              </Text>
+            ) : (
+              <Text type="warning" style={{ fontSize: 12 }}>
+                <ExclamationCircleOutlined /> {t('voice.micDevicePermissionHint')}
+              </Text>
+            )}
           </div>
         )}
       </Card>

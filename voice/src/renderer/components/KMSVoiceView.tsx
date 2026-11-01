@@ -443,6 +443,7 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
     saveAudio, saveSecondaryAudio, mergeDualSourceTranscript,
     transcribe, cancelTranscribe,
     generateMinutes, cancelMinutes, loadAudioSources,
+    requestMicAccess, openPrivacySettings,
     realtimeStart, realtimeFeed, realtimeStop, onRealtimeResult,
     subtitleShow, subtitleHide, getTask,
   } = useVoice()
@@ -1008,6 +1009,19 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
     }
   }, [createFeedTimer])
 
+  // ==================== 系统媒体权限（macOS） ====================
+
+  /** 麦克风权限不可用时弹出引导：一键打开系统设置的对应面板 */
+  const showMicPermissionGuide = useCallback(() => {
+    modal.confirm({
+      title: t('voice.micPermissionTitle'),
+      content: t('voice.micPermissionGuide'),
+      okText: t('voice.openSystemSettings'),
+      cancelText: t('common.cancel'),
+      onOk: () => openPrivacySettings('microphone'),
+    })
+  }, [modal, t, openPrivacySettings])
+
   const startRecording = useCallback(async (taskId: string) => {
     try {
       recordingSession.audioChunks = []
@@ -1023,6 +1037,14 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
 
       // Microphone - 使用配置的麦克风设备（Issue 3: 默认系统推荐设备）
       if (recordSource === 'mic' || recordSource === 'both') {
+        // 先由主进程向 macOS 申请麦克风权限：未授权时 getUserMedia 只会静默失败，
+        // 且应用不会出现在「隐私与安全性 → 麦克风」列表里。
+        const access = await requestMicAccess()
+        if (!access.granted) {
+          setIsPreparing(false)
+          showMicPermissionGuide()
+          return
+        }
         try {
           const micConstraints: MediaTrackConstraints = {
             echoCancellation: true,
@@ -1040,7 +1062,14 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
           streams.push(micStream)
         } catch (err: any) {
           if (err.name === 'NotAllowedError') {
-            message.error(t('voice.micPermissionDenied'))
+            setIsPreparing(false)
+            showMicPermissionGuide()
+            return
+          }
+          // 没有麦克风设备（如 Mac mini 无内置麦克风）或保存的设备已失效
+          if (err.name === 'NotFoundError' || err.name === 'OverconstrainedError') {
+            setIsPreparing(false)
+            message.error(t('voice.micNotFound'))
             return
           }
           throw err
@@ -1316,7 +1345,7 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
       setIsRecording(false)
       setIsPreparing(false)
     }
-  }, [recordSource, message, t, saveAudio, updateTask, settings, realtimeStart, realtimeStop, subtitleVisible, subtitleShow, subtitleHide, createSourceProcessor, createFeedTimer, handleDualSourceStop])
+  }, [recordSource, message, t, saveAudio, updateTask, settings, requestMicAccess, showMicPermissionGuide, realtimeStart, realtimeStop, subtitleVisible, subtitleShow, subtitleHide, createSourceProcessor, createFeedTimer, handleDualSourceStop])
 
   // ==================== Task Actions ====================
 
