@@ -4,27 +4,31 @@ import type { PluginWorkflowArtifact, PluginWorkflowDeleteRunResult, PluginWorkf
 import type { WorkflowTemplate } from '../shared/types'
 import { invoke } from './host'
 
+export type WorkflowView = 'list' | 'edit' | 'run'
+
 interface WorkflowState {
   templates: WorkflowTemplate[]
   loading: boolean
-  /** 正在编辑的模板（null = 模板库视图） */
+  /** 当前页面：模板库 / 画布编辑 / 运行详情 */
+  view: WorkflowView
+  /** 正在编辑的模板 */
   editing: WorkflowTemplate | null
-  /** 运行中面板（RunDialog）展示的运行 */
-  activeRun: PluginWorkflowRun | null
+  /** 正在查看的运行 */
+  run: PluginWorkflowRun | null
+  runLoading: boolean
   /** 运行历史列表 */
   runs: PluginWorkflowRun[]
-  /** 运行详情抽屉展示的运行 */
-  detailRunId: string | null
-  detailRun: PluginWorkflowRun | null
 
   setTemplates: (list: WorkflowTemplate[]) => void
   setLoading: (loading: boolean) => void
-  setEditing: (template: WorkflowTemplate | null) => void
-  setActiveRun: (run: PluginWorkflowRun | null) => void
+  openEditor: (template: WorkflowTemplate) => void
+  closeEditor: () => void
+  /** 打开一次运行（拉取全量数据） */
+  openRun: (runId: string) => Promise<void>
+  /** 启动成功后直接进入运行页 */
+  startRunView: (run: PluginWorkflowRun) => void
+  closeRun: () => void
   setRuns: (runs: PluginWorkflowRun[]) => void
-  /** 打开运行详情抽屉（拉取全量数据） */
-  openRunDetail: (runId: string) => void
-  closeRunDetail: () => void
   /** 删除运行记录（IPC）；成功后从各视图移除，返回结果（含工作目录信息供二次确认） */
   deleteRun: (runId: string) => Promise<PluginWorkflowDeleteRunResult>
   /** 统一处理运行事件：轻量状态先上屏，其余事件全量拉取 */
@@ -53,11 +57,6 @@ function patchRun(run: PluginWorkflowRun, event: PluginWorkflowRunEvent): Plugin
       const data = (event.data || {}) as { verdict?: string; status?: PluginWorkflowNodeRun['status'] }
       return { ...node, status: data.status || 'completed', verdict: data.verdict ?? node.verdict }
     }
-    if (event.eventType === 'artifact') {
-      const artifact = event.data as PluginWorkflowArtifact | undefined
-      if (!artifact || run.artifacts.some(a => a.nodeId === artifact.nodeId && a.path === artifact.path)) return node
-      return node
-    }
     return node
   })
   if (event.eventType === 'artifact') {
@@ -78,7 +77,7 @@ function patchRun(run: PluginWorkflowRun, event: PluginWorkflowRunEvent): Plugin
   }
 }
 
-export const useWorkflowStore = create<WorkflowState>((set) => {
+export const useWorkflowStore = create<WorkflowState>((set, get) => {
   /** 全量拉取一次运行并同步到所有持有它的视图（历史列表缺该条时补到顶部） */
   async function refresh(runId: string): Promise<void> {
     try {
@@ -86,8 +85,7 @@ export const useWorkflowStore = create<WorkflowState>((set) => {
       const run = res?.run
       if (!run) return
       set((s) => ({
-        activeRun: s.activeRun?.runId === runId ? run : s.activeRun,
-        detailRun: s.detailRunId === runId || s.detailRun?.runId === runId ? run : s.detailRun,
+        run: s.run?.runId === runId ? run : s.run,
         runs: s.runs.some((r) => r.runId === runId)
           ? s.runs.map((r) => (r.runId === runId ? run : r))
           : [run, ...s.runs],
@@ -100,23 +98,43 @@ export const useWorkflowStore = create<WorkflowState>((set) => {
   return {
     templates: [],
     loading: false,
+    view: 'list',
     editing: null,
-    activeRun: null,
+    run: null,
+    runLoading: false,
     runs: [],
-    detailRunId: null,
-    detailRun: null,
 
     setTemplates: (list) => set({ templates: list }),
     setLoading: (loading) => set({ loading }),
-    setEditing: (template) => set({ editing: template }),
-    setActiveRun: (run) => set({ activeRun: run }),
-    setRuns: (runs) => set({ runs }),
 
-    openRunDetail: (runId) => {
-      set({ detailRunId: runId, detailRun: null })
-      void refresh(runId)
+    openEditor: (template) => set({ editing: template, view: 'edit' }),
+    closeEditor: () => set({ editing: null, view: 'list' }),
+
+    openRun: async (runId) => {
+      set({ view: 'run', run: null, runLoading: true })
+      try {
+        const res = await invoke<{ run: PluginWorkflowRun | null }>('run-get', { runId })
+        const run = res?.run || null
+        set((s) => ({
+          run,
+          runLoading: false,
+          runs: run && !s.runs.some(r => r.runId === run.runId) ? [run, ...s.runs] : s.runs,
+        }))
+      } catch {
+        set({ runLoading: false })
+      }
     },
-    closeRunDetail: () => set({ detailRunId: null, detailRun: null }),
+
+    startRunView: (run) => set((s) => ({
+      run,
+      view: 'run',
+      runLoading: false,
+      runs: [run, ...s.runs.filter(r => r.runId !== run.runId)],
+    })),
+
+    closeRun: () => set({ run: null, view: 'list' }),
+
+    setRuns: (runs) => set({ runs }),
 
     deleteRun: async (runId) => {
       try {
@@ -124,9 +142,8 @@ export const useWorkflowStore = create<WorkflowState>((set) => {
         if (!res?.ok) return { ok: false }
         set((s) => ({
           runs: s.runs.filter((r) => r.runId !== runId),
-          activeRun: s.activeRun?.runId === runId ? null : s.activeRun,
-          detailRunId: s.detailRunId === runId ? null : s.detailRunId,
-          detailRun: s.detailRun?.runId === runId ? null : s.detailRun,
+          run: s.run?.runId === runId ? null : s.run,
+          view: s.run?.runId === runId ? 'list' : s.view,
         }))
         return res
       } catch {
@@ -135,16 +152,18 @@ export const useWorkflowStore = create<WorkflowState>((set) => {
     },
 
     handleRunEvent: (event) => {
+      const before = get().run
       set((s) => ({
-        activeRun: s.activeRun ? patchRun(s.activeRun, event) : null,
+        run: s.run ? patchRun(s.run, event) : null,
         runs: s.runs.map((r) => patchRun(r, event)),
-        detailRun: s.detailRun ? patchRun(s.detailRun, event) : null,
       }))
       // node:start / node:event / artifact 已做增量合并，无需全量拉取；
       // node:end / run:end 携带产出、token、终态，全量拉取一次与落库结果对齐
       if (event.eventType !== 'node:start' && event.eventType !== 'node:event' && event.eventType !== 'artifact') {
         void refresh(event.runId)
       }
+      // 运行结束但当前页不是运行页时，也把该条记录补进历史列表
+      if (event.eventType === 'run:end' && !before) void refresh(event.runId)
     },
   }
 })

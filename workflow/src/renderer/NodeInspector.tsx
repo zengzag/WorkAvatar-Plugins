@@ -1,5 +1,5 @@
-/** 节点属性面板：名称 / 角色来源 / 临时角色 / 工具 / 指令 / 循环轮次 */
-import { Form, Input, InputNumber, Segmented, Select, Typography, theme } from 'antd'
+/** 节点属性：基础信息默认展开，模型 / 工具 / 临时角色细节收进「高级设置」 */
+import { Input, InputNumber, Segmented, Select, Typography, theme } from 'antd'
 import { useEffect, useState } from 'react'
 import { invoke, t } from './host'
 import { ModelSelect } from './ModelSelect'
@@ -23,12 +23,11 @@ interface ToolOption {
   description?: string
 }
 
-/** 宿主工具目录（用于「可用工具」下拉的真实选项，避免让用户手输工具 id） */
 async function loadToolOptions(): Promise<ToolOption[]> {
   try {
     const api = (window as { electronAPI?: { tool?: { listBuiltin?: () => Promise<unknown> } } }).electronAPI
     const list = await api?.tool?.listBuiltin?.()
-    return Array.isArray(list) ? (list as ToolOption[]).filter(x => x && typeof x.id === 'string') : []
+    return Array.isArray(list) ? (list as ToolOption[]).filter(item => item && typeof item.id === 'string') : []
   } catch {
     return []
   }
@@ -39,6 +38,7 @@ export function NodeInspector({ template, node, onChange }: Props) {
   const [employees, setEmployees] = useState<EmployeeOption[]>([])
   const [employeesLoading, setEmployeesLoading] = useState(true)
   const [toolOptions, setToolOptions] = useState<ToolOption[]>([])
+  const [advancedOpen, setAdvancedOpen] = useState(false)
 
   useEffect(() => {
     void invoke<{ list: EmployeeOption[] }>('employee-options')
@@ -48,26 +48,19 @@ export function NodeInspector({ template, node, onChange }: Props) {
     void loadToolOptions().then(setToolOptions)
   }, [])
 
-  if (!node) {
-    return (
-      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        {t('canvas.selectNode')}
-      </Typography.Text>
-    )
-  }
+  if (!node) return null
 
   const data = node.data
-  // 以「是否声明临时角色」判定来源：新节点默认落在数字员工选择器，
-  // 切到临时角色时才创建角色对象——避免按 employeeId 判定时「点数字员工又弹回去」
   const roleSource = data.ephemeralRole ? 'ephemeral' : 'employee'
+  const showRole = node.type === 'agent' || node.type === 'review'
+  const isReview = node.type === 'review'
 
-  /** 局部更新节点数据并回写整份模板 */
   const patch = (partial: Partial<WorkflowNode['data']>) => {
     onChange({
       ...template,
       graph: {
         ...template.graph,
-        nodes: template.graph.nodes.map(n => (n.id === node.id ? { ...n, data: { ...n.data, ...partial } } : n)),
+        nodes: template.graph.nodes.map(item => (item.id === node.id ? { ...item, data: { ...item.data, ...partial } } : item)),
       },
     })
   }
@@ -84,21 +77,23 @@ export function NodeInspector({ template, node, onChange }: Props) {
     patch({ ephemeralRole: { key: '', name: '', systemPrompt: '', tools: [], ...data.ephemeralRole, ...partial } })
   }
 
-  const showRole = node.type === 'agent' || node.type === 'review'
+  const hasAdvanced = showRole
 
   return (
-    <Form layout="vertical" size="small" style={{ padding: 12 }}>
-      <Form.Item label={t('field.label')}>
+    <div>
+      <div className="wf-field">
+        <label className="wf-field-label">{t('field.label')}</label>
         <Input
           value={data.label}
           placeholder={t('field.labelPlaceholder')}
-          onChange={(e) => patch({ label: e.target.value })}
+          onChange={event => patch({ label: event.target.value })}
         />
-      </Form.Item>
+      </div>
 
-      {showRole && (
+      {showRole ? (
         <>
-          <Form.Item label={t('field.roleSource')} extra={<Typography.Text type="secondary" style={{ fontSize: 11 }}>{t('field.roleSourceHint')}</Typography.Text>}>
+          <div className="wf-field">
+            <label className="wf-field-label">{isReview ? t('field.reviewer') : t('field.executor')}</label>
             <Segmented
               block
               value={roleSource}
@@ -108,115 +103,120 @@ export function NodeInspector({ template, node, onChange }: Props) {
                 { label: t('field.roleEphemeral'), value: 'ephemeral' },
               ]}
             />
-          </Form.Item>
+          </div>
 
           {roleSource === 'employee' ? (
-            <Form.Item label={t('field.employee')}>
+            <div className="wf-field">
               <Select
+                style={{ width: '100%' }}
                 value={data.employeeId}
                 placeholder={t('field.employeePlaceholder')}
-                onChange={(value) => patch({ employeeId: value })}
-                options={employees.map(e => ({ value: e.id, label: e.name }))}
+                onChange={value => patch({ employeeId: value })}
+                options={employees.map(employee => ({ value: employee.id, label: employee.name }))}
                 showSearch
                 optionFilterProp="label"
                 allowClear
                 loading={employeesLoading}
-                notFoundContent={
-                  employeesLoading ? undefined : (
-                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                      {t('field.employeeEmpty')}
-                    </Typography.Text>
-                  )
-                }
+                notFoundContent={employeesLoading ? undefined : (
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>{t('field.employeeEmpty')}</Typography.Text>
+                )}
               />
-            </Form.Item>
+            </div>
           ) : (
             <>
-              <Form.Item label={t('field.ephemeralName')} required style={{ marginBottom: 8 }}>
+              <div className="wf-field">
+                <label className="wf-field-label">{t('field.ephemeralName')}</label>
                 <Input
                   value={data.ephemeralRole?.name}
                   placeholder={t('field.ephemeralNamePlaceholder')}
-                  onChange={(e) => patchRole({ name: e.target.value })}
+                  onChange={event => patchRole({ name: event.target.value })}
                 />
-              </Form.Item>
-              <Form.Item label={t('field.ephemeralPrompt')} required style={{ marginBottom: 8 }}>
+              </div>
+              <div className="wf-field">
+                <label className="wf-field-label">{t('field.ephemeralPrompt')}</label>
                 <Input.TextArea
                   value={data.ephemeralRole?.systemPrompt}
                   placeholder={t('field.ephemeralPromptPlaceholder')}
-                  autoSize={{ minRows: 4, maxRows: 12 }}
-                  onChange={(e) => patchRole({ systemPrompt: e.target.value })}
+                  autoSize={{ minRows: 4, maxRows: 10 }}
+                  onChange={event => patchRole({ systemPrompt: event.target.value })}
                 />
-              </Form.Item>
-              <Form.Item
-                label={t('field.ephemeralTools')}
-                style={{ marginBottom: 8 }}
-                extra={<Typography.Text type="secondary" style={{ fontSize: 11 }}>{t('field.ephemeralToolsHint')}</Typography.Text>}
-              >
-                <Select
-                  mode="tags"
-                  value={data.ephemeralRole?.tools || []}
-                  placeholder={t('field.ephemeralToolsPlaceholder')}
-                  onChange={(value: string[]) => patchRole({ tools: value })}
-                  options={toolOptions.map(tool => ({
-                    value: tool.id,
-                    label: tool.title ? `${tool.title} (${tool.id})` : tool.id,
-                  }))}
-                  tokenSeparators={[',']}
-                  maxTagCount="responsive"
-                />
-              </Form.Item>
+              </div>
             </>
           )}
         </>
-      )}
+      ) : null}
 
-      {showRole && (
-        <Form.Item
-          label={t('field.model')}
-          style={{ marginBottom: 8 }}
-          extra={<Typography.Text type="secondary" style={{ fontSize: 11 }}>{t('field.modelHint')}</Typography.Text>}
-        >
-          <ModelSelect
-            providerId={data.providerId}
-            modelId={data.modelId}
-            onChange={(providerId, modelId) => patch({ providerId: providerId || undefined, modelId: modelId || undefined })}
-          />
-        </Form.Item>
-      )}
-
-      <Form.Item
-        label={t('field.instruction')}
-        extra={
-          <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-            {node.type === 'input' ? t('field.inputInstructionHint') : t('field.instructionHint')}
-          </Typography.Text>
-        }
-      >
+      <div className="wf-field">
+        <label className="wf-field-label">{isReview ? t('field.reviewCriteria') : t('field.instruction')}</label>
         <Input.TextArea
           value={data.instruction}
           placeholder={t('field.instructionPlaceholder')}
-          autoSize={{ minRows: node.type === 'input' ? 3 : 5, maxRows: 16 }}
-          onChange={(e) => patch({ instruction: e.target.value })}
+          autoSize={{ minRows: node.type === 'input' ? 3 : 5, maxRows: 14 }}
+          onChange={event => patch({ instruction: event.target.value })}
         />
-      </Form.Item>
+        <div className="wf-help">
+          {node.type === 'input' ? t('field.inputInstructionHint') : t('field.instructionHint')}
+        </div>
+      </div>
 
-      {node.type === 'loop' && (
-        <Form.Item label={t('field.maxRounds')} extra={<Typography.Text type="secondary" style={{ fontSize: 11 }}>{t('field.maxRoundsHint')}</Typography.Text>}>
+      {node.type === 'loop' ? (
+        <div className="wf-field">
+          <label className="wf-field-label">{t('field.maxRounds')}</label>
           <InputNumber
             min={1}
             max={10}
             value={data.maxRounds ?? 3}
-            onChange={(value) => patch({ maxRounds: value ?? 3 })}
+            onChange={value => patch({ maxRounds: value ?? 3 })}
             style={{ width: '100%' }}
           />
-        </Form.Item>
-      )}
+          <div className="wf-help">{t('field.maxRoundsHint')}</div>
+        </div>
+      ) : null}
 
-      {node.type === 'review' && (
-        <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block', padding: `0 0 ${token.paddingXXS}px` }}>
-          {t('field.verdictHint')}
-        </Typography.Text>
-      )}
-    </Form>
+      {isReview ? (
+        <div className="wf-help" style={{ marginTop: -4 }}>{t('field.verdictHint')}</div>
+      ) : null}
+
+      {hasAdvanced ? (
+        <div className="wf-advanced">
+          <button className="wf-adv-toggle" onClick={() => setAdvancedOpen(v => !v)}>
+            {advancedOpen ? '▾' : '▸'} {t('field.advanced')}
+          </button>
+          {advancedOpen ? (
+            <div className="wf-adv-body">
+              <div className="wf-field">
+                <label className="wf-field-label">{t('field.model')}</label>
+                <ModelSelect
+                  providerId={data.providerId}
+                  modelId={data.modelId}
+                  onChange={(providerId, modelId) => patch({ providerId: providerId || undefined, modelId: modelId || undefined })}
+                />
+                <div className="wf-help">{t('field.modelHint')}</div>
+              </div>
+              {roleSource === 'ephemeral' ? (
+                <div className="wf-field">
+                  <label className="wf-field-label">{t('field.ephemeralTools')}</label>
+                  <Select
+                    mode="tags"
+                    style={{ width: '100%' }}
+                    value={data.ephemeralRole?.tools || []}
+                    placeholder={t('field.ephemeralToolsPlaceholder')}
+                    onChange={(value: string[]) => patchRole({ tools: value })}
+                    options={toolOptions.map(tool => ({
+                      value: tool.id,
+                      label: tool.title ? `${tool.title} (${tool.id})` : tool.id,
+                    }))}
+                    tokenSeparators={[',']}
+                    maxTagCount="responsive"
+                  />
+                  <div className="wf-help">{t('field.ephemeralToolsHint')}</div>
+                </div>
+              ) : null}
+              <div className="wf-help" style={{ color: token.colorTextQuaternary }}>{t('field.roleSourceHint')}</div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   )
 }

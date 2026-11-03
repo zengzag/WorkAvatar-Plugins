@@ -1,6 +1,18 @@
-/** 画布节点渲染：类型徽标 + 名称 + 角色摘要 + 运行态 */
+/** 画布节点：类型图标 + 名称 + 执行者/类型摘要 */
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { Tag, Typography, theme } from 'antd'
+import { Typography, theme } from 'antd'
+import {
+  ApartmentOutlined,
+  BranchesOutlined,
+  DownloadOutlined,
+  FlagOutlined,
+  RobotOutlined,
+  SafetyCertificateOutlined,
+  SyncOutlined,
+  ToolOutlined,
+  UserOutlined,
+} from '@ant-design/icons'
+import type { ReactNode } from 'react'
 import { t } from './host'
 import { NODE_COLORS } from './node-catalog'
 
@@ -8,67 +20,63 @@ export interface FlowNodePayload {
   label: string
   nodeType: string
   summary?: string
-  status?: 'pending' | 'running' | 'completed' | 'failed'
-  verdict?: string
-  round?: number
 }
 
-/** 运行态色（仅运行视图使用） */
-const STATUS_COLOR: Record<string, string> = {
-  running: '#1677ff',
-  completed: '#52c41a',
-  failed: '#ff4d4f',
+function typeIcon(type: string): ReactNode {
+  const style = { fontSize: 14 }
+  switch (type) {
+    case 'input': return <DownloadOutlined style={style} />
+    case 'agent': return <RobotOutlined style={style} />
+    case 'review': return <SafetyCertificateOutlined style={style} />
+    case 'condition': return <BranchesOutlined style={style} />
+    case 'loop': return <SyncOutlined style={style} />
+    case 'parallel': return <ApartmentOutlined style={style} />
+    case 'human': return <UserOutlined style={style} />
+    case 'tool': return <ToolOutlined style={style} />
+    case 'end': return <FlagOutlined style={style} />
+    default: return <RobotOutlined style={style} />
+  }
 }
 
 export function WorkflowNodeView({ data, selected }: NodeProps) {
   const { token } = theme.useToken()
   const payload = data as unknown as FlowNodePayload
   const accent = NODE_COLORS[payload.nodeType] || token.colorPrimary
-  const statusColor = payload.status ? STATUS_COLOR[payload.status] : undefined
-  const borderColor = selected ? token.colorPrimary : (statusColor || token.colorBorderSecondary)
 
   return (
     <div
       style={{
-        minWidth: 168,
-        maxWidth: 240,
-        padding: '8px 12px',
-        borderRadius: 8,
+        width: 168,
+        height: 62,
+        padding: '0 12px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        borderRadius: 12,
         background: token.colorBgContainer,
-        border: `1.5px solid ${borderColor}`,
-        boxShadow: selected ? token.boxShadowSecondary : token.boxShadowTertiary,
+        border: `1px solid ${selected ? token.colorPrimary : token.colorBorderSecondary}`,
+        boxShadow: selected ? `0 0 0 3px ${token.colorPrimaryBg}, ${token.boxShadowSecondary}` : token.boxShadowTertiary,
       }}
     >
-      <Handle type="target" position={Position.Left} style={{ background: token.colorBorder }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-        <span style={{ width: 6, height: 6, borderRadius: 3, background: accent, flex: 'none' }} />
-        <Tag
-          style={{ margin: 0, fontSize: 11, lineHeight: '16px', padding: '0 4px', borderColor: accent, color: accent, background: 'transparent' }}
-        >
-          {t(`node.${payload.nodeType}`)}
-        </Tag>
-        {payload.round ? (
-          <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-            {t('template.round', { n: payload.round })}
-          </Typography.Text>
-        ) : null}
+      <Handle type="target" position={Position.Left} style={{ background: token.colorBorder, width: 7, height: 7 }} />
+      <span
+        style={{
+          width: 31, height: 31, borderRadius: 9, flex: 'none',
+          display: 'grid', placeItems: 'center',
+          color: accent, background: `${accent}16`,
+        }}
+      >
+        {typeIcon(payload.nodeType)}
+      </span>
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <Typography.Text strong ellipsis style={{ display: 'block', fontSize: 12.5, lineHeight: 1.35 }}>
+          {payload.label}
+        </Typography.Text>
+        <Typography.Text type="secondary" ellipsis style={{ display: 'block', fontSize: 10.5, marginTop: 2 }}>
+          {payload.summary || t(`node.${payload.nodeType}`)}
+        </Typography.Text>
       </div>
-      <Typography.Text strong ellipsis style={{ display: 'block', fontSize: 13 }}>
-        {payload.label}
-      </Typography.Text>
-      {payload.summary ? (
-        <Typography.Text type="secondary" ellipsis style={{ display: 'block', fontSize: 11 }}>
-          {payload.summary}
-        </Typography.Text>
-      ) : null}
-      {payload.verdict ? (
-        <Typography.Text
-          style={{ fontSize: 11, color: payload.verdict === 'pass' ? token.colorSuccess : token.colorError }}
-        >
-          {t(`verdict.${payload.verdict}`) || payload.verdict}
-        </Typography.Text>
-      ) : null}
-      <Handle type="source" position={Position.Right} style={{ background: token.colorBorder }} />
+      <Handle type="source" position={Position.Right} style={{ background: token.colorBorder, width: 7, height: 7 }} />
     </div>
   )
 }

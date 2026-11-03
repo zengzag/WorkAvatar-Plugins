@@ -1,16 +1,17 @@
-/** 模板库首页 + 画布编辑切换 */
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Button, Card, Empty, List, Popconfirm, Space, Tag, Tooltip, Typography, message, theme } from 'antd'
-import { CopyOutlined, DeleteOutlined, EditOutlined, HistoryOutlined, LoadingOutlined, PlayCircleOutlined, PlusOutlined } from '@ant-design/icons'
+/** 模板任务：模板库 / 画布编辑 / 运行详情 三视图切换 */
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { theme } from 'antd'
 import { usePageVisible } from '@workavatar/plugin-sdk/renderer'
 import type { PluginWorkflowRun } from '@workavatar/plugin-sdk'
 import { invoke, onRunEvent, onTemplatesChanged, t } from './host'
+import { isDarkColor } from './utils'
 import { useWorkflowStore } from './store'
+import { TemplateList } from './TemplateList'
 import { CanvasEditor } from './CanvasEditor'
-import { RunDialog, RunHistoryDrawer } from './RunDialog'
-import { RunDetailDrawer } from './RunDetail'
-import { STATUS_COLOR } from './RunTimeline'
+import { RunStartModal, RunHistoryDrawer } from './RunDialog'
+import { RunPage } from './RunPage'
 import type { WorkflowTemplate } from '../shared/types'
+import './workflow.css'
 
 /** 新建模板的空白流程（含默认输入/智能体/结束节点与示例入参，保存后可直接运行与改造） */
 function blankTemplate(): WorkflowTemplate {
@@ -49,21 +50,23 @@ function blankTemplate(): WorkflowTemplate {
 
 export function WorkflowPage() {
   const { token } = theme.useToken()
+  const isDark = isDarkColor(token.colorBgContainer)
   const templates = useWorkflowStore(s => s.templates)
   const loading = useWorkflowStore(s => s.loading)
+  const view = useWorkflowStore(s => s.view)
   const editing = useWorkflowStore(s => s.editing)
+  const runs = useWorkflowStore(s => s.runs)
   const setTemplates = useWorkflowStore(s => s.setTemplates)
   const setLoading = useWorkflowStore(s => s.setLoading)
-  const setEditing = useWorkflowStore(s => s.setEditing)
-  const setActiveRun = useWorkflowStore(s => s.setActiveRun)
-  const runs = useWorkflowStore(s => s.runs)
   const setRuns = useWorkflowStore(s => s.setRuns)
-  const openRunDetail = useWorkflowStore(s => s.openRunDetail)
+  const openEditor = useWorkflowStore(s => s.openEditor)
+  const closeEditor = useWorkflowStore(s => s.closeEditor)
+  const startRunView = useWorkflowStore(s => s.startRunView)
 
   const [runTarget, setRunTarget] = useState<WorkflowTemplate | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
 
-  // 页面级统一订阅运行事件：运行面板 / 历史列表 / 详情抽屉都由 store 派发更新
+  // 页面级统一订阅运行事件：运行页 / 历史列表 / 模板卡片状态都由 store 派发更新
   useEffect(() => onRunEvent((event) => { useWorkflowStore.getState().handleRunEvent(event) }), [])
 
   const reload = useCallback(async () => {
@@ -78,7 +81,6 @@ export function WorkflowPage() {
     }
   }, [setTemplates, setLoading])
 
-  // 拉取运行记录：驱动卡片上的最近运行状态徽标（历史抽屉打开时会再拉一次全量）
   const loadRuns = useCallback(async () => {
     try {
       const res = await invoke<{ list: PluginWorkflowRun[] }>('run-list', { limit: 100 })
@@ -93,10 +95,10 @@ export function WorkflowPage() {
     void loadRuns()
   }, [reload, loadRuns])
 
-  // 模板可能被 LLM（agent 工具）在其它页/窗口创建或修改；主进程写操作后广播 → 立即刷新
+  // 模板可能被 LLM（agent 工具）在其它页/窗口创建或修改；写操作后立即刷新
   useEffect(() => onTemplatesChanged(() => { void reload() }), [reload])
 
-  // 页面被 KeepAlive 缓存，切回本页时重新拉取，避免停在旧快照（首次挂载由上面的 effect 负责）
+  // 页面被 KeepAlive 缓存，切回本页时重新拉取，避免停在旧快照
   const pageVisible = usePageVisible()
   const prevVisibleRef = useRef(true)
   useEffect(() => {
@@ -107,107 +109,75 @@ export function WorkflowPage() {
     prevVisibleRef.current = pageVisible
   }, [pageVisible, reload, loadRuns])
 
-  const duplicate = async (template: WorkflowTemplate) => {
-    await invoke('template-duplicate', { id: template.id })
-    message.success(t('template.duplicated'))
-    void reload()
+  const handleRunStarted = (run: PluginWorkflowRun) => {
+    startRunView(run)
+    void loadRuns()
   }
 
-  const remove = async (template: WorkflowTemplate) => {
-    await invoke('template-delete', { id: template.id })
-    void reload()
-  }
+  const vars = useMemo(() => ({
+    '--wf-bg': token.colorBgLayout,
+    '--wf-panel': token.colorBgContainer,
+    '--wf-soft': token.colorFillQuaternary,
+    '--wf-soft-2': token.colorFillSecondary,
+    '--wf-border': token.colorBorderSecondary,
+    '--wf-border-strong': token.colorBorder,
+    '--wf-text': token.colorText,
+    '--wf-text-2': token.colorTextSecondary,
+    '--wf-text-3': token.colorTextTertiary,
+    '--wf-accent': token.colorPrimary,
+    '--wf-accent-soft': token.colorPrimaryBg,
+    '--wf-accent-border': token.colorPrimaryBorder,
+    '--wf-green': token.colorSuccess,
+    '--wf-red': token.colorError,
+    '--wf-amber': token.colorWarning,
+    '--wf-purple': isDark ? '#a371f7' : '#8250df',
+    '--wf-purple-soft': isDark ? '#241c3a' : '#f3edff',
+    '--wf-shadow-1': token.boxShadowTertiary,
+    '--wf-shadow-2': token.boxShadowSecondary,
+    '--wf-shadow-3': token.boxShadow,
+    '--wf-font-code': token.fontFamilyCode,
+  }) as CSSProperties, [token, isDark])
 
-  if (editing) {
-    return (
-      <CanvasEditor
-        template={editing}
-        onBack={() => { setEditing(null); void reload() }}
-        onSaved={(saved) => setEditing(saved)}
-      />
-    )
-  }
+  // antd 的 Drawer / Modal / Popover 默认挂在 body 下，需要同样的变量才能跟随明暗主题
+  useEffect(() => {
+    const root = document.documentElement
+    for (const [key, value] of Object.entries(vars)) root.style.setProperty(key, String(value))
+  }, [vars])
 
   return (
-    <div style={{ padding: 16, height: '100%', overflowY: 'auto' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
-        <div>
-          <Typography.Title level={4} style={{ margin: 0 }}>{t('page.title')}</Typography.Title>
-          <Typography.Text type="secondary">{t('page.desc')}</Typography.Text>
-        </div>
-        <Space>
-          <Button icon={<HistoryOutlined />} onClick={() => setHistoryOpen(true)}>{t('page.runHistory')}</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing(blankTemplate())}>
-            {t('page.newTemplate')}
-          </Button>
-        </Space>
-      </div>
+    <div className="wf-root" style={vars}>
+      {view === 'run' ? <RunPage /> : null}
 
-      <List
-        loading={loading}
-        grid={{ gutter: 12, xs: 1, sm: 2, md: 3, lg: 3, xl: 4 }}
-        dataSource={templates}
-        locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('page.empty')} /> }}
-        renderItem={(template) => (
-          <List.Item>
-            <Card
-              size="small"
-              title={<span style={{ fontSize: 14 }}>{template.name}</span>}
-              extra={(() => {
-                const run = runs.find(r => r.templateId === template.id)
-                return (
-                  <Space size={4}>
-                    {run ? (
-                      <Tooltip title={t('run.viewLatestRun')}>
-                        <span
-                          onClick={() => openRunDetail(run.runId)}
-                          style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                        >
-                          {/* 用 LoadingOutlined 而非 antd Spin：List 内部会包一层 nested Spin，
-                              其 .ant-spin .ant-spin-section 绝对定位规则会把卡片内的独立 Spin 拽到列表正中 */}
-                          {run.status === 'running' ? (
-                            <LoadingOutlined spin style={{ fontSize: 12, color: token.colorPrimary }} />
-                          ) : null}
-                          <Tag color={STATUS_COLOR[run.status]} style={{ marginInlineEnd: 0 }}>
-                            {t(`status.${run.status}`)}
-                          </Tag>
-                        </span>
-                      </Tooltip>
-                    ) : null}
-                    <Tag style={{ marginInlineEnd: 0 }}>{template.graph.nodes.length}</Tag>
-                  </Space>
-                )
-              })()}
-              actions={[
-                <Button key="edit" type="text" size="small" icon={<EditOutlined />} onClick={() => setEditing(template)}>
-                  {t('template.edit')}
-                </Button>,
-                <Button key="run" type="text" size="small" icon={<PlayCircleOutlined />} onClick={() => setRunTarget(template)}>
-                  {t('template.run')}
-                </Button>,
-                <Button key="copy" type="text" size="small" icon={<CopyOutlined />} onClick={() => duplicate(template)} />,
-                <Popconfirm key="del" title={t('template.deleteConfirm')} onConfirm={() => remove(template)}>
-                  <Button type="text" size="small" danger icon={<DeleteOutlined />} />
-                </Popconfirm>,
-              ]}
-            >
-              <Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }} style={{ fontSize: 12, minHeight: 40, marginBottom: 4 }}>
-                {template.description || '—'}
-              </Typography.Paragraph>
-              <Typography.Text type="secondary" style={{ fontSize: 11, color: token.colorTextTertiary }}>
-                {t('template.updatedAt')}: {new Date(template.updatedAt).toLocaleString()}
-              </Typography.Text>
-            </Card>
-          </List.Item>
-        )}
-      />
+      {view === 'edit' && editing ? (
+        <CanvasEditor
+          template={editing}
+          onBack={() => { closeEditor(); void reload() }}
+          onSaved={(saved) => {
+            openEditor(saved)
+            void reload()
+          }}
+        />
+      ) : null}
 
-      <RunDialog
+      {view === 'list' ? (
+        <TemplateList
+          templates={templates}
+          loading={loading}
+          runs={runs}
+          onRun={setRunTarget}
+          onEdit={openEditor}
+          onCreate={() => openEditor(blankTemplate())}
+          onHistory={() => setHistoryOpen(true)}
+          onChanged={() => { void reload(); void loadRuns() }}
+        />
+      ) : null}
+
+      <RunStartModal
         template={runTarget}
-        onClose={() => { setRunTarget(null); setActiveRun(null) }}
+        onClose={() => setRunTarget(null)}
+        onStarted={handleRunStarted}
       />
       <RunHistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} />
-      <RunDetailDrawer />
     </div>
   )
 }

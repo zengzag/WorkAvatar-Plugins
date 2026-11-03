@@ -34,30 +34,7 @@ import {
   WfToolSegment,
 } from './wf-chat'
 import { resolveToolIcon, resolveToolTitle, useToolCatalog } from './tool-catalog'
-
-export const STATUS_COLOR: Record<string, string> = {
-  pending: 'default',
-  running: 'processing',
-  completed: 'success',
-  failed: 'error',
-  aborted: 'warning',
-  skipped: 'default',
-}
-
-/** Unix 秒 → 本地时间文案 */
-export function formatTime(unixSec?: number): string {
-  if (!unixSec) return '-'
-  return new Date(unixSec * 1000).toLocaleString()
-}
-
-/** 运行耗时：终态取区间，进行中按当前时间实时计算；未开始返回 null */
-export function formatDuration(startSec?: number, endSec?: number): string | null {
-  if (!startSec) return null
-  const secs = Math.max((endSec ?? Math.floor(Date.now() / 1000)) - startSec, 0)
-  if (secs < 60) return `${secs}s`
-  if (secs < 3600) return `${Math.floor(secs / 60)}m ${secs % 60}s`
-  return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`
-}
+import { formatDuration, formatTime } from './utils'
 
 /** 单节点状态图标（带状态悬浮提示） */
 function StatusIcon({ status }: { status: PluginWorkflowNodeRun['status'] }) {
@@ -231,7 +208,7 @@ function RoundGroups({ events, nodeRunning }: { events: PluginWorkflowNodeEvent[
 }
 
 /** transcript 分段入口：多轮节点按轮折叠分组，单轮节点直接展示分段 */
-function TranscriptSegmentList({ events, nodeRunning }: { events: PluginWorkflowNodeEvent[]; nodeRunning: boolean }) {
+export function TranscriptSegmentList({ events, nodeRunning }: { events: PluginWorkflowNodeEvent[]; nodeRunning: boolean }) {
   if (groupByRound(events).length > 1) return <RoundGroups events={events} nodeRunning={nodeRunning} />
   return <SegmentList events={events} nodeRunning={nodeRunning} />
 }
@@ -301,7 +278,7 @@ export function RunTimeline({ run, expandedKeys, onToggle }: TimelineProps) {
         )
 
         return (
-          <div key={node.nodeId} style={{ display: 'flex', gap: 10 }}>
+          <div key={node.nodeId} id={`wf-run-node-${run.runId}-${node.nodeId}`} style={{ display: 'flex', gap: 10 }}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 16, flexShrink: 0 }}>
               <StatusIcon status={node.status} />
               {!last && <div style={{ flex: 1, width: 1, minHeight: 16, background: token.colorBorderSecondary, margin: '4px 0' }} />}

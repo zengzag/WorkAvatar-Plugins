@@ -1,4 +1,4 @@
-/** 运行模板任务：填写入参并启动，随后展示执行过程；含运行历史抽屉 */
+/** 运行启动弹窗 + 运行历史抽屉 */
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, App, Button, Drawer, Empty, Form, Input, Modal, Popconfirm, Space, Spin, Tag, Tooltip, Typography, message, theme } from 'antd'
 import { DeleteOutlined, QuestionCircleOutlined } from '@ant-design/icons'
@@ -6,37 +6,32 @@ import type { PluginWorkflowRun } from '@workavatar/plugin-sdk'
 import { invoke, t } from './host'
 import { useWorkflowStore } from './store'
 import { ModelSelect, loadDefaultModel } from './ModelSelect'
-import { RunBody } from './RunDetail'
-import { STATUS_COLOR, formatDuration, formatTime } from './RunTimeline'
+import { STATUS_COLOR, formatDuration, formatTime } from './utils'
 import type { WorkflowTemplate } from '../shared/types'
 
-interface Props {
+interface StartProps {
   template: WorkflowTemplate | null
   onClose: () => void
+  onStarted: (run: PluginWorkflowRun) => void
 }
 
-export function RunDialog({ template, onClose }: Props) {
+/** 运行前填参：模板有入参时展示表单，否则直接开始 */
+export function RunStartModal({ template, onClose, onStarted }: StartProps) {
   const { token } = theme.useToken()
   const [form] = Form.useForm()
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [model, setModel] = useState<{ providerId: string; modelId: string }>({ providerId: '', modelId: '' })
-  const activeRun = useWorkflowStore(s => s.activeRun)
-  const setActiveRun = useWorkflowStore(s => s.setActiveRun)
 
-  /** 打开不同模板时重置为全局默认模型（预填仅作展示，用户可改或清空） */
   useEffect(() => {
     if (!template) return
     let alive = true
     setModel({ providerId: '', modelId: '' })
-    void loadDefaultModel().then(m => { if (alive) setModel(m) })
+    setError(null)
+    void loadDefaultModel().then(result => { if (alive) setModel(result) })
     return () => { alive = false }
   }, [template?.id])
 
-  /** 只展示属于当前模板的运行进度，避免旧运行残留污染入参表单 */
-  const showRun = !!template && !!activeRun && activeRun.templateId === template.id
-
-  /** 入参默认值预填（模板侧配置的 defaultValue） */
   const initialValues = useMemo(() => {
     const values: Record<string, string> = {}
     for (const variable of template?.variables || []) values[variable.name] = variable.defaultValue || ''
@@ -61,10 +56,11 @@ export function RunDialog({ template, onClose }: Props) {
         modelId: model.modelId || undefined,
       })
       if (res?.error || !res?.run) {
-        setError(res?.error || 'run failed')
+        setError(res?.error || t('run.startFailed'))
         return
       }
-      setActiveRun(res.run)
+      onStarted(res.run)
+      onClose()
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -72,105 +68,90 @@ export function RunDialog({ template, onClose }: Props) {
     }
   }
 
-  const abort = () => {
-    if (activeRun) void invoke('run-abort', { runId: activeRun.runId })
-  }
-
-  const runActions = activeRun ? (
-    <Space size={6}>
-      {activeRun.status === 'running' ? (
-        <Popconfirm title={t('run.abortConfirm')} onConfirm={abort} okButtonProps={{ danger: true }}>
-          <Button size="small" danger>{t('run.abort')}</Button>
-        </Popconfirm>
-      ) : null}
-    </Space>
-  ) : null
-
   return (
     <Modal
       open={!!template}
       title={`${t('run.title')} · ${template?.name || ''}`}
       onCancel={onClose}
       footer={null}
-      width={820}
+      width={560}
       destroyOnHidden
     >
-      {error && <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} />}
-
-      {!showRun && (
-        <Form
-          form={form}
-          layout="vertical"
-          size="small"
-          key={template?.id || 'none'}
-          initialValues={initialValues}
+      {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} /> : null}
+      <Form
+        form={form}
+        layout="vertical"
+        size="small"
+        key={template?.id || 'none'}
+        initialValues={initialValues}
+        style={{ paddingTop: 4 }}
+      >
+        {template?.variables?.length ? (
+          template.variables.map(variable => {
+            const hasDefault = !!variable.defaultValue
+            return (
+              <Form.Item
+                key={variable.name}
+                name={variable.name}
+                style={{ marginBottom: 10 }}
+                label={(
+                  <Space size={4}>
+                    <span>{variable.name}</span>
+                    {variable.description ? (
+                      <Tooltip title={variable.description}>
+                        <QuestionCircleOutlined style={{ color: token.colorTextTertiary, fontSize: 12 }} />
+                      </Tooltip>
+                    ) : null}
+                    {hasDefault ? (
+                      <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                        ({t('run.variableOptional')})
+                      </Typography.Text>
+                    ) : null}
+                  </Space>
+                )}
+                rules={hasDefault ? [] : [{ required: true, message: t('run.variableRequired', { name: variable.name }) }]}
+              >
+                <Input.TextArea
+                  autoSize={{ minRows: 2, maxRows: 6 }}
+                  placeholder={hasDefault ? variable.defaultValue : (variable.description || '')}
+                />
+              </Form.Item>
+            )
+          })
+        ) : (
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            {t('run.noVariables')}
+          </Typography.Text>
+        )}
+        <Form.Item
+          label={t('run.model')}
+          style={{ margin: '12px 0' }}
+          extra={<Typography.Text type="secondary" style={{ fontSize: 11 }}>{t('run.modelHint')}</Typography.Text>}
         >
-          {template?.variables?.length ? (
-            template.variables.map(v => {
-              const hasDefault = !!v.defaultValue
-              return (
-                <Form.Item
-                  key={v.name}
-                  name={v.name}
-                  style={{ marginBottom: 10 }}
-                  label={
-                    <Space size={4}>
-                      <span>{v.name}</span>
-                      {v.description ? (
-                        <Tooltip title={v.description}>
-                          <QuestionCircleOutlined style={{ color: token.colorTextTertiary, fontSize: 12 }} />
-                        </Tooltip>
-                      ) : null}
-                      {hasDefault ? (
-                        <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                          ({t('run.variableOptional')})
-                        </Typography.Text>
-                      ) : null}
-                    </Space>
-                  }
-                  rules={hasDefault ? [] : [{ required: true, message: t('run.variableRequired', { name: v.name }) }]}
-                >
-                  <Input.TextArea
-                    autoSize={{ minRows: 2, maxRows: 6 }}
-                    placeholder={hasDefault ? v.defaultValue : (v.description || '')}
-                  />
-                </Form.Item>
-              )
-            })
-          ) : (
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              {t('run.noVariables')}
-            </Typography.Text>
-          )}
-          <Form.Item
-            label={t('run.model')}
-            style={{ marginBottom: 12 }}
-            extra={<Typography.Text type="secondary" style={{ fontSize: 11 }}>{t('run.modelHint')}</Typography.Text>}
-          >
-            <ModelSelect
-              providerId={model.providerId}
-              modelId={model.modelId}
-              onChange={(providerId, modelId) => setModel({ providerId, modelId })}
-            />
-          </Form.Item>
-          <Button type="primary" loading={starting} onClick={start} style={{ marginTop: 8 }}>
+          <ModelSelect
+            providerId={model.providerId}
+            modelId={model.modelId}
+            onChange={(providerId, modelId) => setModel({ providerId, modelId })}
+          />
+        </Form.Item>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 4 }}>
+          <Button onClick={onClose}>{t('common.cancel')}</Button>
+          <Button type="primary" loading={starting} onClick={() => void start()}>
             {starting ? t('run.starting') : t('run.start')}
           </Button>
-        </Form>
-      )}
-
-      {showRun && activeRun && <RunBody run={activeRun} actions={runActions} />}
+        </div>
+      </Form>
     </Modal>
   )
 }
 
-/** 运行历史抽屉：状态 / 时间 / 耗时 / 进度 / 失败原因，点入详情，可删除记录 */
+/** 运行历史抽屉：点击进入运行页，可删除记录 */
 export function RunHistoryDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { token } = theme.useToken()
   const { modal } = App.useApp()
   const runs = useWorkflowStore(s => s.runs)
   const setRuns = useWorkflowStore(s => s.setRuns)
-  const openRunDetail = useWorkflowStore(s => s.openRunDetail)
+  const openRun = useWorkflowStore(s => s.openRun)
   const deleteRun = useWorkflowStore(s => s.deleteRun)
   const [loading, setLoading] = useState(false)
   const [hovered, setHovered] = useState<string | null>(null)
@@ -191,34 +172,33 @@ export function RunHistoryDrawer({ open, onClose }: { open: boolean; onClose: ()
       return
     }
     message.success(t('run.deleted'))
-    // 工作区目录非空时，与普通任务一致地询问是否一并删除
     if (res.taskDirNonEmpty && res.taskDir) {
-      const dir = res.taskDir
+      const taskDir = res.taskDir
       modal.confirm({
         title: t('run.deleteDirTitle'),
-        content: t('run.deleteDirContent', { path: dir }),
+        content: t('run.deleteDirContent', { path: taskDir }),
         okText: t('run.deleteDirOk'),
         cancelText: t('run.deleteDirCancel'),
         okButtonProps: { danger: true },
-        onOk: () => invoke('run-delete-workspace', { path: dir }),
+        onOk: () => invoke('run-delete-workspace', { path: taskDir }),
       })
     }
   }
 
   return (
-    <Drawer open={open} onClose={onClose} title={t('page.runHistory')} width={480}>
+    <Drawer open={open} onClose={onClose} title={t('page.runHistory')} size={480}>
       {loading && runs.length === 0 ? (
         <div style={{ padding: 48, textAlign: 'center' }}><Spin /></div>
       ) : runs.length === 0 ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('run.noHistory')} />
       ) : (
         runs.map(run => {
-          const done = run.nodes.filter(n => n.status === 'completed').length
-          const current = run.nodes.find(n => n.status === 'running')
+          const done = run.nodes.filter(node => node.status === 'completed').length
+          const current = run.nodes.find(node => node.status === 'running')
           return (
             <div
               key={run.runId}
-              onClick={() => openRunDetail(run.runId)}
+              onClick={() => { onClose(); void openRun(run.runId) }}
               onMouseEnter={() => setHovered(run.runId)}
               onMouseLeave={() => setHovered(null)}
               style={{
@@ -234,8 +214,8 @@ export function RunHistoryDrawer({ open, onClose }: { open: boolean; onClose: ()
                 </Typography.Text>
                 <Tag color={STATUS_COLOR[run.status]} style={{ marginInlineEnd: 0 }}>{t(`status.${run.status}`)}</Tag>
                 {run.status !== 'running' ? (
-                  <span onClick={e => e.stopPropagation()}>
-                    <Popconfirm title={t('run.deleteConfirm')} onConfirm={() => remove(run)} okButtonProps={{ danger: true }}>
+                  <span onClick={event => event.stopPropagation()}>
+                    <Popconfirm title={t('run.deleteConfirm')} onConfirm={() => void remove(run)} okButtonProps={{ danger: true }}>
                       <Button size="small" type="text" danger icon={<DeleteOutlined />} />
                     </Popconfirm>
                   </span>

@@ -1,5 +1,5 @@
-/** 连线属性面板：分支标签仅对评审/条件出边有意义，普通边给出风险提示与一键清除 */
-import { Alert, Button, Form, Segmented, Typography } from 'antd'
+/** 连线属性：分支标签仅对评审/条件出边有意义，普通边给出风险提示与一键清除 */
+import { Alert, Button, Segmented, Typography } from 'antd'
 import { t } from './host'
 import type { WorkflowEdge, WorkflowTemplate } from '../shared/types'
 
@@ -15,30 +15,28 @@ export function EdgeInspector({ template, edge, onChange }: Props) {
       ...template,
       graph: {
         ...template.graph,
-        edges: template.graph.edges.map(e => (e.id === edge.id ? { ...e, ...partial } : e)),
+        edges: template.graph.edges.map(item => (item.id === edge.id ? { ...item, ...partial } : item)),
       },
     })
   }
 
-  const sourceNode = template.graph.nodes.find(n => n.id === edge.source)
-  const targetNode = template.graph.nodes.find(n => n.id === edge.target)
+  const sourceNode = template.graph.nodes.find(node => node.id === edge.source)
+  const targetNode = template.graph.nodes.find(node => node.id === edge.target)
   const isConditional = sourceNode?.type === 'review' || sourceNode?.type === 'condition'
-  // 历史数据里的自定义标签：作为附加选项展示，避免 Segmented 显示为空
   const customWhen = edge.when && edge.when !== 'pass' && edge.when !== 'fail' ? edge.when : undefined
 
   return (
-    <Form layout="vertical" size="small" style={{ padding: 12 }}>
-      <Form.Item label={t('edge.path')}>
+    <div>
+      <div className="wf-field">
+        <label className="wf-field-label">{t('edge.path')}</label>
         <Typography.Text style={{ fontSize: 12 }}>
           {sourceNode?.data.label || edge.source} → {targetNode?.data.label || edge.target}
         </Typography.Text>
-      </Form.Item>
+      </div>
 
-      {isConditional && (
-        <Form.Item
-          label={t('edge.branchType')}
-          extra={<Typography.Text type="secondary" style={{ fontSize: 11 }}>{t('edge.labelHint')}</Typography.Text>}
-        >
+      {isConditional ? (
+        <div className="wf-field">
+          <label className="wf-field-label">{t('edge.branchType')}</label>
           <Segmented
             block
             value={edge.when ?? ''}
@@ -50,26 +48,25 @@ export function EdgeInspector({ template, edge, onChange }: Props) {
               ...(customWhen ? [{ label: customWhen, value: customWhen }] : []),
             ]}
           />
-        </Form.Item>
-      )}
+          <div className="wf-help">{t('edge.labelHint')}</div>
+        </div>
+      ) : null}
 
-      {!isConditional && edge.when && (
+      {!isConditional && edge.when ? (
         <Alert
           type="warning"
           showIcon
           message={t('edge.labeledWarning')}
-          action={
+          action={(
             <Button size="small" type="text" onClick={() => patch({ when: undefined })}>
               {t('edge.clearLabel')}
             </Button>
-          }
+          )}
         />
-      )}
-      {!isConditional && !edge.when && (
-        <Typography.Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
-          {t('edge.normalHint')}
-        </Typography.Text>
-      )}
-    </Form>
+      ) : null}
+      {!isConditional && !edge.when ? (
+        <div className="wf-help">{t('edge.normalHint')}</div>
+      ) : null}
+    </div>
   )
 }
