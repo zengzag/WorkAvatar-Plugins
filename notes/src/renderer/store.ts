@@ -18,7 +18,7 @@ import type {
   NotesDataChangedPayload,
   RenameResult,
 } from './types'
-import { DEFAULT_NOTES_SETTINGS } from './types'
+import { DEFAULT_NOTES_SETTINGS, migrateNoteRelPath } from './types'
 
 export type { NoteEditorMode, RenameResult }
 
