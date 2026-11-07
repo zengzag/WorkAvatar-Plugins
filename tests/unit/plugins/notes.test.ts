@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { createMockContext } from '../../helpers/mock-plugin-context'
 
 // mock electron（vitest node 环境无 electron）
@@ -280,6 +283,87 @@ describe('notes 插件 rename/move 路径映射（文件夹 Tab 迁移）', () =
     const read = mock.ipc.handlers.get('read')!
     const content = await read(`${res.relPath}/${childName}`) as { error?: string }
     expect(content.error).toBeUndefined()
+  })
+})
+
+describe('notes 插件复制/导入/图片/日记', () => {
+  let mock: ReturnType<typeof createMockContext>
+
+  beforeEach(async () => {
+    mock = createMockContext('notes')
+    const mod = await loadPlugin()
+    mod.activate(mock.ctx)
+  })
+
+  it('copy 笔记生成独立副本，内容一致', async () => {
+    const create = mock.ipc.handlers.get('create-note')!
+    const created = await create({ parentRelPath: '', name: `复制源${Date.now()}` }) as { relPath: string }
+    const write = mock.ipc.handlers.get('write')!
+    await write({ relPath: created.relPath, content: '复制内容' })
+
+    const copy = mock.ipc.handlers.get('copy')!
+    const res = await copy({ srcRelPath: created.relPath, destParentRelPath: '' }) as { relPath?: string; error?: string }
+    expect(res.error).toBeUndefined()
+    expect(res.relPath).toBeTruthy()
+    expect(res.relPath).not.toBe(created.relPath)
+
+    const read = mock.ipc.handlers.get('read')!
+    const copied = await read(res.relPath!) as { content?: string }
+    expect(copied.content).toBe('复制内容')
+  })
+
+  it('copy 缺 srcRelPath 拒绝', async () => {
+    const copy = mock.ipc.handlers.get('copy')!
+    const res = await copy({ destParentRelPath: '' }) as { error?: string }
+    expect(res.error).toBeTruthy()
+  })
+
+  it('save-image 缺 buffer 拒绝；传入图片后落盘可定位', async () => {
+    const saveImage = mock.ipc.handlers.get('save-image')!
+    expect((await saveImage({ fileName: 'a.png' }) as { error?: string }).error).toBeTruthy()
+
+    const buffer = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a])
+    const res = await saveImage({ buffer, fileName: `图片${Date.now()}.png` }) as { relPath?: string; error?: string }
+    expect(res.error).toBeUndefined()
+    expect(res.relPath).toBeTruthy()
+
+    const getAbs = mock.ipc.handlers.get('get-abs-path')!
+    const abs = await getAbs(res.relPath!) as { absPath?: string }
+    expect(fs.existsSync(abs.absPath!)).toBe(true)
+  })
+
+  it('open-diary 默认关闭，开启后返回可访问的日记路径', async () => {
+    const openDiary = mock.ipc.handlers.get('open-diary')!
+    const disabled = await openDiary() as { error?: string }
+    expect(disabled.error).toBeTruthy()
+
+    const set = mock.ipc.handlers.get('set-settings')!
+    await set({ diary_enabled: true })
+
+    const res = await openDiary() as { relPath?: string; error?: string }
+    expect(res.error).toBeUndefined()
+    expect(res.relPath).toBeTruthy()
+
+    const read = mock.ipc.handlers.get('read')!
+    const content = await read(res.relPath!) as { error?: string }
+    expect(content.error).toBeUndefined()
+  })
+
+  it('import-external 缺路径拒绝，传入真实文件后导入', async () => {
+    const importExternal = mock.ipc.handlers.get('import-external')!
+    expect((await importExternal({ destParentRelPath: '' }) as { error?: string }).error).toBeTruthy()
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wa-notes-'))
+    const src = path.join(dir, `外部笔记${Date.now()}.md`)
+    fs.writeFileSync(src, '# 外部内容', 'utf-8')
+    const res = await importExternal({ srcAbsPath: src, destParentRelPath: '' }) as { relPath?: string; error?: string }
+    expect(res.error).toBeUndefined()
+    expect(res.relPath).toBeTruthy()
+
+    const read = mock.ipc.handlers.get('read')!
+    const content = await read(res.relPath!) as { content?: string }
+    expect(content.content).toContain('外部内容')
+    fs.rmSync(dir, { recursive: true, force: true })
   })
 })
 

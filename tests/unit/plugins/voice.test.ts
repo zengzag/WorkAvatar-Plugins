@@ -41,7 +41,7 @@ describe('voice 插件 activate', () => {
     mock = createMockContext('voice')
   })
 
-  it('注册 25 个 IPC handler', async () => {
+  it('注册 28 个 IPC handler', async () => {
     const mod = await loadPlugin()
     mod.activate(mock.ctx)
     const channels = ['list-tasks', 'get-task', 'create-task', 'update-task', 'delete-task',
@@ -49,13 +49,14 @@ describe('voice 插件 activate', () => {
       'transcribe', 'cancel-transcribe',
       'generate-minutes', 'cancel-minutes',
       'get-settings', 'set-settings',
-      'get-audio-sources', 'check-local-model', 'select-directory',
+      'get-audio-sources', 'get-media-access', 'request-mic-access', 'open-privacy-settings',
+      'check-local-model', 'select-directory',
       'realtime-start', 'realtime-feed', 'realtime-stop', 'realtime-cancel',
       'subtitle-show', 'subtitle-hide', 'subtitle-toggle', 'subtitle-get-visible']
     for (const c of channels) {
       expect(mock.ipc.handlers.has(c)).toBe(true)
     }
-    expect(mock.ipc.handlers.size).toBe(25)
+    expect(mock.ipc.handlers.size).toBe(28)
   })
 
   it('deactivate 不抛错', async () => {
