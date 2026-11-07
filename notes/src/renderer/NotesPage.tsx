@@ -566,7 +566,13 @@ const NotesPage: React.FC = () => {
                 }
               >
                 {notes.tree.length === 0 ? (
-                  <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateNoteAtRoot}>
+                  <Button
+                    type="primary"
+                    icon={<PlusOutlined />}
+                    onClick={handleCreateNoteAtRoot}
+                    onMouseDown={(e) => e.preventDefault()}
+                    data-testid="notes-create-first"
+                  >
                     {t('createFirstNote')}
                   </Button>
                 ) : null}

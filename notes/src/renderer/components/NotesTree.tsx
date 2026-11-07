@@ -110,6 +110,7 @@ const TreeNodeTitle = memo(function TreeNodeTitle({
         ref={inputRef}
         size="small"
         autoFocus
+        data-testid="notes-inline-name"
         value={editingName}
         onChange={(e) => onEditingNameChange(e.target.value)}
         onClick={(e) => e.stopPropagation()}
@@ -197,6 +198,9 @@ const NotesTree: React.FC<Props> = ({
   const submittingRef = useRef(false)
   const cancelingRef = useRef(false)
   const initedExpandRef = useRef(false)
+  // 树从空态切换到有节点时，焦点可能落到刚挂载的 .ant-tree-list 上，
+  // 此时 rc-tree 内部 listRef 尚未就绪，focus→scrollTo 会抛异常；短窗口内拦截该焦点事件。
+  const focusGuardRef = useRef(false)
   const preFilterKeysRef = useRef<React.Key[] | null>(null)
   // 拖拽时靠近顶部/底部自动滚动
   const dragScrollDirRef = useRef<'up' | 'down' | null>(null)
@@ -231,6 +235,14 @@ const NotesTree: React.FC<Props> = ({
       setExpandedKeys(tree.filter((n) => n.type === 'folder').map((n) => n.relPath))
     }
   }, [tree, expandedFolders, settingsLoading])
+
+  // 空树 → 有节点后的 500ms 内开启焦点守卫，跳过 rc-tree 首次挂载的 scrollTo 竞态
+  useEffect(() => {
+    if (tree.length === 0) return
+    focusGuardRef.current = true
+    const timer = window.setTimeout(() => { focusGuardRef.current = false }, 500)
+    return () => window.clearTimeout(timer)
+  }, [tree.length])
 
   // 过滤时展开全部文件夹，退出过滤时恢复之前的状态
   useEffect(() => {
@@ -1045,13 +1057,27 @@ const NotesTree: React.FC<Props> = ({
               </span>
             }
           >
-            <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => startCreate('', 'note')}>
+            {/* 不获取焦点：按钮被树节点替换后焦点会回落到 tabIndex 容器，
+                触发 rc-tree 首次渲染时 listRef 为空导致的 scrollTo 异常 */}
+            <Button
+              type="primary"
+              size="small"
+              icon={<PlusOutlined />}
+              onClick={() => startCreate('', 'note')}
+              onMouseDown={(e) => e.preventDefault()}
+              data-testid="notes-create-inline"
+            >
               {t('createFirstNote')}
             </Button>
           </Empty>
         ) : (
             <div
               onContextMenu={handleRootContextMenu}
+              onFocusCapture={(e) => {
+                if (focusGuardRef.current && (e.target as HTMLElement).classList?.contains('ant-tree-list')) {
+                  e.stopPropagation()
+                }
+              }}
               style={{ minHeight: '100%', padding: '4px 4px', width: '100%', boxSizing: 'border-box' }}
             >
               <Tree
