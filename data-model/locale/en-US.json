@@ -1,5 +1,6 @@
 {
   "navLabel": "Data Model",
+  "description": "Model data visually with an AI copilot: edit tables, fields and relations, import or export DBML.",
   "toolNames": {
     "get_model_meta": "Get Model Meta",
     "get_model_json": "Get Model JSON",

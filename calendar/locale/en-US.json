@@ -1,5 +1,6 @@
 {
   "navLabel": "Calendar",
+  "description": "Calendar and to-dos with events, tasks, recurrence rules, reminders and optional Outlook sync.",
   "toolNames": {
     "calendar_event_list": "List Events",
     "calendar_event_create": "Create Event",

@@ -1,5 +1,6 @@
 {
   "navLabel": "Image Studio",
+  "description": "A studio for slide visuals, scientific figures, flowcharts and architecture diagrams, with prompt presets, transparent backgrounds and a local gallery.",
   "title": "Image Studio",
   "subtitle": "Slide visuals · Research figures · General art",
   "searchPlaceholder": "Search prompts or images",

@@ -1,5 +1,7 @@
 {
   "navLabel": "Templates",
+  "description": "Task templates: build multi-step flows (draft, review, conditions, loops) on a canvas, assign digital employees or inline roles, iterate until approved, and watch runs in the task page.",
+  "name": "Task Templates",
   "toolNames": {
     "workflow_list_templates": "List task templates",
     "workflow_get_template": "Read template detail",
@@ -51,6 +53,7 @@
     "name": "Template name",
     "namePlaceholder": "e.g. Project guide writing & review",
     "description": "Description",
+  "name": "Task Templates",
     "descriptionPlaceholder": "What problem does this template solve, what inputs are needed",
     "save": "Save",
     "delete": "Delete",

@@ -1,5 +1,6 @@
 {
   "navLabel": "Voice",
+  "description": "Speech recognition: transcribe local recordings, generate meeting minutes, recognize live while recording, and show floating subtitles.",
   "common": {
     "confirm": "Confirm",
     "cancel": "Cancel",

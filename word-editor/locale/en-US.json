@@ -1,5 +1,6 @@
 {
   "navLabel": "Docs",
+  "description": "Word documents in-app: import docx, rich-text editing, AI rewriting, layout commands, version snapshots, export to docx or PDF.",
   "page.title": "Docs",
   "page.newDoc": "New Document",
   "page.docName": "Document name",

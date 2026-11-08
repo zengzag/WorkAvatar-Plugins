@@ -1,5 +1,7 @@
 {
   "navLabel": "AI Assistants",
+  "description": "Open Doubao, DeepSeek and other AI chat sites in one window as a single pane, split view or tabs, add any custom HTTPS site, and keep each site signed in separately.",
+  "name": "AI Assistants",
   "mode.single": "Single",
   "mode.split": "Split",
   "mode.tabs": "Tabs",

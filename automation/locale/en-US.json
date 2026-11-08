@@ -1,5 +1,6 @@
 {
   "navLabel": "Automation",
+  "description": "Schedule digital employees to run prompt-based tasks, with run history and upcoming runs.",
   "toolNames": {
     "automation_task_list": "List Automation Tasks",
     "automation_task_create": "Create Automation Task",

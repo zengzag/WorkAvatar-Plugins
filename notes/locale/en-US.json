@@ -1,5 +1,6 @@
 {
   "navLabel": "Notes",
+  "description": "Markdown notes with vaults, tabs, daily notes, outline and search.",
   "saveToNote": "Save to Notes",
   "saveToNoteSuccess": "Saved to notes",
   "saveToNoteFailed": "Failed to save to notes",

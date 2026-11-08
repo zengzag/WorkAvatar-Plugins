@@ -1,5 +1,6 @@
 {
   "navLabel": "Hello World",
+  "description": "Reference example plugin covering IPC, the event bus, KV and storage migrations, contribution points, system capabilities, data/execution and collaboration.",
   "helloWorld.home.title": "Hello World Plugin Capability Reference",
   "helloWorld.home.desc": "A systematic demo of the full plugin SDK. Third-party developers can click through each tab to see the main-process and renderer implementations.",
   "helloWorld.tabs.ipc": "IPC & Storage",

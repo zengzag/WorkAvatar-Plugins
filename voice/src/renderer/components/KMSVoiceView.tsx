@@ -2068,8 +2068,8 @@ const KMSVoiceView: React.FC<KMSVoiceViewProps> = ({ onOpenSettings }) => {
         </div>
       ) : (
         <div style={{ width: 260, flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <Title level={5} style={{ margin: 0 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', rowGap: 8, marginBottom: 8 }}>
+            <Title level={5} style={{ margin: 0, whiteSpace: 'nowrap' }}>
               <AudioOutlined /> {t('voice.title')}
             </Title>
             <Space>
