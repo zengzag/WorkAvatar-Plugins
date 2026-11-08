@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button, Space, Segmented, theme, Input, Select } from 'antd'
-import { PlusOutlined, FieldTimeOutlined, ReloadOutlined } from '@ant-design/icons'
+import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useTranslation } from 'react-i18next'
 import { useAutomation } from './useAutomation'
 import { auto as autoBridge } from './store'
@@ -126,13 +126,13 @@ const AutomationPage: React.FC = () => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: '12px 16px',
+          minHeight: 48,
+          padding: '0 12px 0 18px',
           borderBottom: `1px solid ${token.colorBorderSecondary}`,
           flexShrink: 0,
         }}
       >
         <Space size="middle">
-          <FieldTimeOutlined style={{ fontSize: 18, color: token.colorPrimary }} />
           <Segmented
             value={auto.activeTab}
             onChange={(v) => auto.setActiveTab(v as 'tasks' | 'history')}

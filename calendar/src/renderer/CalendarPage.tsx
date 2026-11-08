@@ -265,14 +265,14 @@ const CalendarPage: React.FC = () => {
   }, [cal, todoModalMode])
 
   return (
-    <div ref={pageRef} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div ref={pageRef} style={{ height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--wa-content-bg)' }}>
       {/* 顶部工具栏 */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         padding: '12px 16px',
-        borderBottom: `1px solid ${token.colorBorderSecondary}`,
+        borderBottom: '1px solid var(--wa-line-2)',
         flexShrink: 0,
       }}>
         <Space size="middle">

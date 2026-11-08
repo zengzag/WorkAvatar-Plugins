@@ -287,15 +287,15 @@ const NotesPage: React.FC = () => {
   const emptyEditor = notes.tabs.length === 0 || !hasOpenFile
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: token.colorBgLayout }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--wa-bg)' }}>
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: 6,
-          padding: '4px 8px',
-          borderBottom: `1px solid ${token.colorBorderSecondary}`,
-          background: token.colorBgContainer,
+          padding: '6px 10px',
+          borderBottom: '1px solid var(--wa-line-2)',
+          background: 'var(--wa-panel)',
           flexShrink: 0,
         }}
       >
@@ -345,13 +345,13 @@ const NotesPage: React.FC = () => {
               style={{
                 width: sidebarWidth,
                 minWidth: 0,
-                borderRight: `1px solid ${token.colorBorderSecondary}`,
+                borderRight: '1px solid var(--wa-line-2)',
                 display: 'flex',
                 flexDirection: 'column',
                 minHeight: 0,
                 flexShrink: 0,
                 overflow: 'hidden',
-                background: token.colorBgContainer,
+                background: 'var(--wa-panel)',
               }}
             >
               <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
@@ -398,8 +398,8 @@ const NotesPage: React.FC = () => {
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                borderBottom: `1px solid ${token.colorBorderSecondary}`,
-                background: token.colorBgLayout,
+                borderBottom: '1px solid var(--wa-line-2)',
+                background: 'var(--wa-panel-2)',
                 flexShrink: 0,
                 overflowX: 'auto',
                 overflowY: 'hidden',

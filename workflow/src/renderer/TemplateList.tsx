@@ -100,9 +100,10 @@ export function TemplateList({ templates, loading, runs, onRun, onEdit, onCreate
           <div className="wf-empty"><Spin /></div>
         ) : filtered.length === 0 ? (
           <div className="wf-empty">
-            {templates.length === 0
-              ? t('page.empty')
-              : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('list.emptySearch')} />}
+            <Empty
+              image={Empty.PRESENTED_IMAGE_SIMPLE}
+              description={templates.length === 0 ? t('page.empty') : t('list.emptySearch')}
+            />
           </div>
         ) : (
           <div className="wf-tpl-grid">

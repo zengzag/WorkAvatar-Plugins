@@ -485,14 +485,15 @@ function HelloPage() {
 /** chat.toolbar 注入组件：宿主对话输入框工具栏上的小徽标 */
 function HelloToolbar() {
   return (
-    <Tag
-      color="cyan"
-      style={{ cursor: 'pointer', margin: 0 }}
+    <button
+      type="button"
+      className="wa-glass-chip"
+      style={{ cursor: 'pointer', height: 24, padding: '0 10px' }}
       onClick={() => hostRef?.bridge.invoke('command:hello')}
       title={t('helloWorld.view.toolbarTip')}
     >
       {t('helloWorld.view.toolbar')}
-    </Tag>
+    </button>
   )
 }
 

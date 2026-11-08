@@ -1,33 +1,33 @@
 /* data-model 插件样式：明暗主题自适应 */
 
 :root {
-  --dm-bg: #ffffff;
-  --dm-bg-soft: #f5f5f5;
-  --dm-text: #1f1f1f;
-  --dm-muted: #8c8c8c;
-  --dm-border: #e8e8e8;
-  --dm-border-strong: #d9d9d9;
-  --dm-primary: #1677ff;
-  --dm-primary-soft: rgba(22, 119, 255, 0.15);
+  --dm-bg: var(--wa-panel, #ffffff);
+  --dm-bg-soft: var(--wa-panel-2, #f5f5f5);
+  --dm-text: var(--wa-ink, #1f1f1f);
+  --dm-muted: var(--wa-ink-3, #8c8c8c);
+  --dm-border: var(--wa-line-2, #e8e8e8);
+  --dm-border-strong: var(--wa-line, #d9d9d9);
+  --dm-primary: var(--wa-accent, #1677ff);
+  --dm-primary-soft: var(--wa-accent-soft, rgba(22, 119, 255, 0.15));
   --dm-highlight: #fa8c16;
   --dm-highlight-soft: rgba(250, 140, 22, 0.18);
-  --dm-hover: rgba(0, 0, 0, 0.04);
+  --dm-hover: var(--wa-hover, rgba(0, 0, 0, 0.04));
   --dm-edge: #b0b0b0;
   --dm-mono: 'JetBrains Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
 }
 
 [data-theme='dark'] {
-  --dm-bg: #141414;
-  --dm-bg-soft: #1f1f1f;
-  --dm-text: #e0e0e0;
-  --dm-muted: #8c8c8c;
-  --dm-border: #303030;
-  --dm-border-strong: #424242;
-  --dm-primary: #1668dc;
-  --dm-primary-soft: rgba(22, 104, 220, 0.2);
+  --dm-bg: var(--wa-panel, #141414);
+  --dm-bg-soft: var(--wa-panel-2, #1f1f1f);
+  --dm-text: var(--wa-ink, #e0e0e0);
+  --dm-muted: var(--wa-ink-3, #8c8c8c);
+  --dm-border: var(--wa-line-2, #303030);
+  --dm-border-strong: var(--wa-line, #424242);
+  --dm-primary: var(--wa-accent, #1668dc);
+  --dm-primary-soft: var(--wa-accent-soft, rgba(22, 104, 220, 0.2));
   --dm-highlight: #fa8c16;
   --dm-highlight-soft: rgba(250, 140, 22, 0.22);
-  --dm-hover: rgba(255, 255, 255, 0.06);
+  --dm-hover: var(--wa-hover, rgba(255, 255, 255, 0.06));
   --dm-edge: #555555;
 }
 

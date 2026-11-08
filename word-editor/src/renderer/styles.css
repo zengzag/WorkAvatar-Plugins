@@ -3,25 +3,25 @@
    此处只承载宿主侧的页面骨架（顶栏 / 侧栏 / 加载态）、编辑器适配与深色外壳覆盖。 */
 
 :root {
-  --we-bg: #ffffff;
-  --we-text: rgba(0, 0, 0, 0.88);
-  --we-muted: #8c8c8c;
-  --we-border: #e8e8e8;
-  --we-hover: rgba(0, 0, 0, 0.04);
-  --we-accent: #1677ff;
-  --we-accent-hover: #0958d9;
-  --we-accent-soft: rgba(22, 119, 255, 0.08);
+  --we-bg: var(--wa-panel, #ffffff);
+  --we-text: var(--wa-ink, rgba(0, 0, 0, 0.88));
+  --we-muted: var(--wa-ink-3, #8c8c8c);
+  --we-border: var(--wa-line-2, #e8e8e8);
+  --we-hover: var(--wa-hover, rgba(0, 0, 0, 0.04));
+  --we-accent: var(--wa-accent, #1677ff);
+  --we-accent-hover: var(--wa-accent-hover, #0958d9);
+  --we-accent-soft: var(--wa-accent-soft, rgba(22, 119, 255, 0.08));
 }
 
 [data-theme='dark'] {
-  --we-bg: #141414;
-  --we-text: rgba(255, 255, 255, 0.85);
-  --we-muted: #8c8c8c;
-  --we-border: #303030;
-  --we-hover: rgba(255, 255, 255, 0.06);
-  --we-accent: #4096ff;
-  --we-accent-hover: #69b1ff;
-  --we-accent-soft: rgba(64, 150, 255, 0.16);
+  --we-bg: var(--wa-panel, #141414);
+  --we-text: var(--wa-ink, rgba(255, 255, 255, 0.85));
+  --we-muted: var(--wa-ink-3, #8c8c8c);
+  --we-border: var(--wa-line-2, #303030);
+  --we-hover: var(--wa-hover, rgba(255, 255, 255, 0.06));
+  --we-accent: var(--wa-accent, #4096ff);
+  --we-accent-hover: var(--wa-accent-hover, #69b1ff);
+  --we-accent-soft: var(--wa-accent-soft, rgba(64, 150, 255, 0.16));
 }
 
 /* 深色编辑器外壳调色（仅用于下方 [data-theme='dark'] 覆盖；页面纸张仍为白色，
@@ -56,9 +56,15 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 12px;
+  height: 48px;
+  padding: 0 14px;
   border-bottom: 1px solid var(--we-border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0));
   flex-shrink: 0;
+}
+
+[data-theme='dark'] .we-topbar {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0));
 }
 
 .we-main {
