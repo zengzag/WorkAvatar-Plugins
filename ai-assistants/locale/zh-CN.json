@@ -1,5 +1,7 @@
 {
   "navLabel": "AI 助手集",
+  "description": "在同一个窗口内以单栏、双栏或标签页方式打开豆包、DeepSeek 等 AI 网页版，支持添加任意自定义 HTTPS 网页；各站点独立持久化登录态，便于多智能体对照使用",
+  "name": "AI 助手集",
   "mode.single": "单栏",
   "mode.split": "双栏",
   "mode.tabs": "标签页",

@@ -1,5 +1,6 @@
 {
   "navLabel": "文档编辑",
+  "description": "Word 文档编辑器：docx 导入、富文本编辑、AI 对话改稿、排版指令、版本快照，导出 docx/PDF",
   "page.title": "文档编辑",
   "page.newDoc": "新建文档",
   "page.docName": "文档名称",

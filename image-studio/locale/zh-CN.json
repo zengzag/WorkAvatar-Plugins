@@ -1,5 +1,6 @@
 {
   "navLabel": "生图",
+  "description": "PPT 配图、科研配图与架构/流程图工作台：接入火山 Seedream、千问 Image 与 OpenAI GPT Image，支持场景预设、提示词 AI 优化、版面留白、透明背景与本地作品库",
   "title": "生图工作室",
   "subtitle": "PPT 配图 · 科研配图 · 通用创作",
   "searchPlaceholder": "搜索提示词或作品",

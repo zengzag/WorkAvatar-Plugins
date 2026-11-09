@@ -1,5 +1,6 @@
 {
   "navLabel": "自动化",
+  "description": "自动化任务管理，支持定时调度数字员工执行提示词任务、执行历史、未来执行预览",
   "toolNames": {
     "automation_task_list": "列出自动化任务",
     "automation_task_create": "创建自动化任务",

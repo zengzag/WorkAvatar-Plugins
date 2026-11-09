@@ -1,5 +1,6 @@
 {
   "navLabel": "数据模型",
+  "description": "数据模型可视化编辑与智能体对话，支持表/字段/关系编辑、DBML 导入导出、AI 建模",
   "toolNames": {
     "get_model_meta": "获取模型元信息",
     "get_model_json": "获取模型 JSON",

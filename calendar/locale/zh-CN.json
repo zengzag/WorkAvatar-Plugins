@@ -1,5 +1,6 @@
 {
   "navLabel": "日历",
+  "description": "日历与待办管理，支持日程事件、待办任务、重复规则、提醒、Outlook 同步",
   "toolNames": {
     "calendar_event_list": "列出日程",
     "calendar_event_create": "创建日程",

@@ -1,5 +1,6 @@
 {
   "navLabel": "Hello World",
+  "description": "系统性示例插件：IPC + 事件总线 + KV/分库迁移 + 贡献点 + 系统能力 + 数据/执行 + 协作全链路参考",
   "helloWorld.home.title": "Hello World 插件能力参考",
   "helloWorld.home.desc": "系统性演示插件 SDK 全链路能力，第三方开发者可对照本页各 Tab 的按钮逐项查看主进程与渲染端实现。",
   "helloWorld.tabs.ipc": "IPC 与存储",

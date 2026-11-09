@@ -1,5 +1,6 @@
 {
   "navLabel": "笔记",
+  "description": "Markdown 笔记编辑器，支持 Vault 管理、多标签、日记、大纲、搜索",
   "saveToNote": "保存到笔记",
   "saveToNoteSuccess": "已保存到笔记",
   "saveToNoteFailed": "保存到笔记失败",

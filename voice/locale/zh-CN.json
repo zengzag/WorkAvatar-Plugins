@@ -1,5 +1,6 @@
 {
   "navLabel": "语音识别",
+  "description": "语音识别：本地录音转写、会议纪要生成、实时边录边识别、悬浮字幕",
   "common": {
     "confirm": "确定",
     "cancel": "取消",
